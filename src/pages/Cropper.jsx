@@ -6,6 +6,8 @@ import {
   HardDrive, Trash2, ChevronLeft, ChevronRight, Copy, FileArchive
 } from 'lucide-react';
 
+let jsZipLoadPromise = null;
+
 const Cropper = () => {
   const MAX_IMAGES = 30;
   // 核心狀態 (多圖隊列)
@@ -24,6 +26,7 @@ const Cropper = () => {
   const [selectedPreset, setSelectedPreset] = useState('4:3');
   const [lastFitMode, setLastFitMode] = useState(null);
   const [step, setStep] = useState('crop');
+  const [bgColorInput, setBgColorInput] = useState('#ffffff');
 
   // 互動狀態
   const [isDragging, setIsDragging] = useState(false);
@@ -31,22 +34,39 @@ const Cropper = () => {
 
   const containerRef = useRef(null);
   const imageRef = useRef(null);
+  const previewCanvasRef = useRef(null);
 
   const currentItem = imageList[currentIndex] || null;
-  const isPostProcess = step === 'postprocess';
   const isPreCroppedItem = !!currentItem?.isPreCropped;
-  const usePostProcessPreview = isPreCroppedItem;
-  const isStep1Locked = isPreCroppedItem;
+  const effectiveStep = isPreCroppedItem ? 'postprocess' : step;
+  const isPostProcess = effectiveStep === 'postprocess';
+  const isStep1Locked = isPreCroppedItem || isPostProcess;
+  const isPostprocessDisabled = !currentItem;
+
+  const isValidHexColor = (value) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
 
   // 動態載入 JSZip
   const loadJSZip = () => {
-    return new Promise((resolve) => {
-      if (window.JSZip) return resolve(window.JSZip);
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    if (jsZipLoadPromise) return jsZipLoadPromise;
+    jsZipLoadPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-      script.onload = () => resolve(window.JSZip);
+      script.onload = () => {
+        if (window.JSZip) {
+          resolve(window.JSZip);
+          return;
+        }
+        jsZipLoadPromise = null;
+        reject(new Error('JSZip failed to initialize.'));
+      };
+      script.onerror = () => {
+        jsZipLoadPromise = null;
+        reject(new Error('JSZip failed to load.'));
+      };
       document.head.appendChild(script);
     });
+    return jsZipLoadPromise;
   };
 
   // 1. 檔案處理邏輯
@@ -76,6 +96,12 @@ const Cropper = () => {
               name: file.name.split('.')[0],
               crop: { x: 0, y: 0 },
               zoom: 1,
+              postprocess: {
+                outerRadius: 0,
+                innerRadius: 0,
+                padding: 0,
+                bgColor: '#ffffff'
+              },
               width: img.naturalWidth,
               height: img.naturalHeight,
               isPreCropped: false
@@ -119,6 +145,12 @@ const Cropper = () => {
               name: file.name.split('.')[0],
               crop: { x: 0, y: 0 },
               zoom: 1,
+              postprocess: {
+                outerRadius: 0,
+                innerRadius: 0,
+                padding: 0,
+                bgColor: '#ffffff'
+              },
               width: img.naturalWidth,
               height: img.naturalHeight,
               isPreCropped: true
@@ -147,30 +179,9 @@ const Cropper = () => {
     canvas.width = customWidth;
     canvas.height = customHeight;
     const ctx = canvas.getContext('2d');
-
-    if (currentItem.isPreCropped) {
-      const imageAspect = img.naturalWidth / img.naturalHeight;
-      const targetAspect = customWidth / customHeight;
-      let drawWidth = customWidth;
-      let drawHeight = customHeight;
-      let dx = 0;
-      let dy = 0;
-
-      if (Number.isFinite(imageAspect) && imageAspect > 0) {
-        if (imageAspect > targetAspect) {
-          drawWidth = customWidth;
-          drawHeight = customWidth / imageAspect;
-          dy = (customHeight - drawHeight) / 2;
-        } else if (imageAspect < targetAspect) {
-          drawHeight = customHeight;
-          drawWidth = customHeight * imageAspect;
-          dx = (customWidth - drawWidth) / 2;
-        }
-      }
-
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, dx, dy, drawWidth, drawHeight);
+    if (!ctx) return;
+    if (isPostProcess || currentItem.isPreCropped) {
+      renderPostprocessToCanvas(ctx, img, currentItem, customWidth, customHeight);
     } else {
       const previewRefSize = 680;
       const scale = customWidth / (aspect >= 1 ? previewRefSize : previewRefSize * aspect);
@@ -190,7 +201,7 @@ const Cropper = () => {
         setFileSize((blob.size / 1024).toFixed(1));
       }
     }, 'image/jpeg', quality);
-  }, [currentItem, aspect, customWidth, customHeight, quality]);
+  }, [currentItem, aspect, customWidth, customHeight, quality, isPostProcess]);
 
   useEffect(() => {
     const timer = setTimeout(estimateSize, 500);
@@ -198,9 +209,14 @@ const Cropper = () => {
   }, [estimateSize]);
 
   useEffect(() => {
-    if (!currentItem) return;
-    setStep(currentItem.isPreCropped ? 'postprocess' : 'crop');
-  }, [currentItem]);
+    if (currentItem?.isPreCropped && step !== 'postprocess') {
+      setStep('postprocess');
+    }
+  }, [currentItem?.isPreCropped, step]);
+
+  useEffect(() => {
+    setBgColorInput(currentItem?.postprocess?.bgColor || '#ffffff');
+  }, [currentItem?.postprocess?.bgColor, currentIndex]);
 
   // 3. 更新當前圖片狀態
   const updateCurrentItem = (updates) => {
@@ -233,6 +249,15 @@ const Cropper = () => {
         }
       };
     }));
+  };
+
+  const applyCurrentPostprocessToAll = () => {
+    if (!currentItem) return;
+    const { postprocess } = currentItem;
+    setImageList(prev => prev.map(item => ({
+      ...item,
+      postprocess: { ...postprocess }
+    })));
   };
 
   // 4. 解析度微調
@@ -296,7 +321,95 @@ const Cropper = () => {
   };
 
   // 5. 渲染與導出
-  const renderToCanvasForZip = (item, targetWidth, targetHeight, targetQuality) => {
+  const drawRoundedRectPath = (ctx, x, y, width, height, radius) => {
+    if (width <= 0 || height <= 0) return;
+    const safeRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+    if (safeRadius === 0) {
+      ctx.rect(x, y, width, height);
+      return;
+    }
+    const right = x + width;
+    const bottom = y + height;
+    ctx.moveTo(x + safeRadius, y);
+    ctx.lineTo(right - safeRadius, y);
+    ctx.arcTo(right, y, right, y + safeRadius, safeRadius);
+    ctx.lineTo(right, bottom - safeRadius);
+    ctx.arcTo(right, bottom, right - safeRadius, bottom, safeRadius);
+    ctx.lineTo(x + safeRadius, bottom);
+    ctx.arcTo(x, bottom, x, bottom - safeRadius, safeRadius);
+    ctx.lineTo(x, y + safeRadius);
+    ctx.arcTo(x, y, x + safeRadius, y, safeRadius);
+  };
+
+  const renderPostprocessToCanvas = (ctx, img, item, targetWidth, targetHeight) => {
+    const previewRefSize = 680;
+    const postprocess = item?.postprocess || {};
+    const resolvedBgColor = isValidHexColor(postprocess.bgColor || '') ? postprocess.bgColor : '#ffffff';
+
+    const maxPadding = Math.min(targetWidth, targetHeight) / 2;
+    const padding = Math.max(0, Math.min(postprocess.padding || 0, maxPadding));
+    const innerWidth = Math.max(0, targetWidth - padding * 2);
+    const innerHeight = Math.max(0, targetHeight - padding * 2);
+
+    const outerRadius = Math.max(0, Math.min(postprocess.outerRadius || 0, Math.min(targetWidth, targetHeight) / 2));
+    const innerRadius = Math.max(0, Math.min(postprocess.innerRadius || 0, Math.min(innerWidth, innerHeight) / 2));
+
+    ctx.save();
+    ctx.beginPath();
+    drawRoundedRectPath(ctx, 0, 0, targetWidth, targetHeight, outerRadius);
+    ctx.clip();
+
+    ctx.fillStyle = resolvedBgColor;
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+    if (innerWidth > 0 && innerHeight > 0) {
+      const innerX = padding;
+      const innerY = padding;
+
+      ctx.save();
+      ctx.beginPath();
+      drawRoundedRectPath(ctx, innerX, innerY, innerWidth, innerHeight, innerRadius);
+      ctx.clip();
+
+      if (item.isPreCropped) {
+        const imageAspect = img.naturalWidth / img.naturalHeight;
+        const targetAspect = innerWidth / innerHeight;
+        let drawWidth = innerWidth;
+        let drawHeight = innerHeight;
+        let dx = innerX;
+        let dy = innerY;
+
+        if (Number.isFinite(imageAspect) && imageAspect > 0) {
+          if (imageAspect > targetAspect) {
+            drawWidth = innerWidth;
+            drawHeight = innerWidth / imageAspect;
+            dy = innerY + (innerHeight - drawHeight) / 2;
+          } else if (imageAspect < targetAspect) {
+            drawHeight = innerHeight;
+            drawWidth = innerHeight * imageAspect;
+            dx = innerX + (innerWidth - drawWidth) / 2;
+          }
+        }
+
+        ctx.drawImage(img, dx, dy, drawWidth, drawHeight);
+      } else {
+        const innerAspect = innerWidth / innerHeight;
+        const scale = innerWidth / (innerAspect >= 1 ? previewRefSize : previewRefSize * innerAspect);
+
+        const dw = img.naturalWidth * item.zoom * scale;
+        const dh = img.naturalHeight * item.zoom * scale;
+        const dx = innerX + (innerWidth / 2) + (item.crop.x * scale) - (dw / 2);
+        const dy = innerY + (innerHeight / 2) + (item.crop.y * scale) - (dh / 2);
+
+        ctx.drawImage(img, dx, dy, dw, dh);
+      }
+
+      ctx.restore();
+    }
+
+    ctx.restore();
+  };
+  const renderToCanvasForZip = (item, targetWidth, targetHeight, targetQuality, renderStep) => {
     return new Promise((resolve) => {
       const canvas = document.createElement('canvas');
       const img = new Image();
@@ -304,29 +417,8 @@ const Cropper = () => {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
-        if (item.isPreCropped) {
-          const imageAspect = img.naturalWidth / img.naturalHeight;
-          const targetAspect = targetWidth / targetHeight;
-          let drawWidth = targetWidth;
-          let drawHeight = targetHeight;
-          let dx = 0;
-          let dy = 0;
-
-          if (Number.isFinite(imageAspect) && imageAspect > 0) {
-            if (imageAspect > targetAspect) {
-              drawWidth = targetWidth;
-              drawHeight = targetWidth / imageAspect;
-              dy = (targetHeight - drawHeight) / 2;
-            } else if (imageAspect < targetAspect) {
-              drawHeight = targetHeight;
-              drawWidth = targetHeight * imageAspect;
-              dx = (targetWidth - drawWidth) / 2;
-            }
-          }
-
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, dx, dy, drawWidth, drawHeight);
+        if (renderStep === 'postprocess' || item.isPreCropped) {
+          renderPostprocessToCanvas(ctx, img, item, targetWidth, targetHeight);
         } else {
           const previewRefSize = 680;
           const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
@@ -354,29 +446,8 @@ const Cropper = () => {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
-        if (item.isPreCropped) {
-          const imageAspect = img.naturalWidth / img.naturalHeight;
-          const targetAspect = targetWidth / targetHeight;
-          let drawWidth = targetWidth;
-          let drawHeight = targetHeight;
-          let dx = 0;
-          let dy = 0;
-
-          if (Number.isFinite(imageAspect) && imageAspect > 0) {
-            if (imageAspect > targetAspect) {
-              drawWidth = targetWidth;
-              drawHeight = targetWidth / imageAspect;
-              dy = (targetHeight - drawHeight) / 2;
-            } else if (imageAspect < targetAspect) {
-              drawHeight = targetHeight;
-              drawWidth = targetHeight * imageAspect;
-              dx = (targetWidth - drawWidth) / 2;
-            }
-          }
-
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, dx, dy, drawWidth, drawHeight);
+        if (isPostProcess || item.isPreCropped) {
+          renderPostprocessToCanvas(ctx, img, item, targetWidth, targetHeight);
         } else {
           const previewRefSize = 680;
           const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
@@ -396,23 +467,65 @@ const Cropper = () => {
     });
   };
 
+  useEffect(() => {
+    if (!isPostProcess) return;
+    if (!currentItem || !containerRef.current || !imageRef.current || !previewCanvasRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const canvas = previewCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const previewScale = customWidth ? rect.width / customWidth : 1;
+    const previewItem = {
+      ...currentItem,
+      postprocess: {
+        ...(currentItem.postprocess || {}),
+        padding: (currentItem.postprocess?.padding || 0) * previewScale,
+        outerRadius: (currentItem.postprocess?.outerRadius || 0) * previewScale,
+        innerRadius: (currentItem.postprocess?.innerRadius || 0) * previewScale
+      }
+    };
+
+    renderPostprocessToCanvas(ctx, imageRef.current, previewItem, rect.width, rect.height);
+  }, [currentItem, isPostProcess, aspect, customWidth, customHeight]);
+
   const batchDownloadZip = async () => {
     if (imageList.length === 0) return;
+    const exportStep = isPostProcess ? 'postprocess' : 'crop';
     setIsProcessing(true);
     try {
       const JSZip = await loadJSZip();
       const zip = new JSZip();
       for (let i = 0; i < imageList.length; i++) {
         const item = imageList[i];
-        const base64Data = await renderToCanvasForZip(item, customWidth, customHeight, quality);
+        const base64Data = await renderToCanvasForZip(item, customWidth, customHeight, quality, exportStep);
         zip.file(`${item.name || `img_${i + 1}`}.jpg`, base64Data, { base64: true });
       }
       const content = await zip.generateAsync({ type: "blob" });
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(content);
+      const url = URL.createObjectURL(content);
+      link.href = url;
       link.download = `batch_export_${new Date().getTime()}.zip`;
       link.click();
-    } catch (e) { console.error(e); } finally { setIsProcessing(false); }
+      setTimeout(() => URL.revokeObjectURL(url), 500);
+    } catch (e) {
+      console.error(e);
+      window.alert('壓縮模組載入失敗，請稍後再試。');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const downloadCurrentImage = async () => {
@@ -573,19 +686,14 @@ const Cropper = () => {
                     height: aspect < 1 ? 'min(92%, 680px)' : 'auto',
                   }}
                 >
-                  {usePostProcessPreview && (
-                    <div className="absolute inset-0 bg-white">
-                      <img
-                        src={currentItem.src}
-                        alt="Postprocess"
-                        draggable="false"
-                        className="w-full h-full object-contain"
-                      />
+                  {isPostProcess && (
+                    <canvas ref={previewCanvasRef} className="absolute inset-0" />
+                  )}
+                  {!isPostProcess && (
+                    <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20">
+                      {[...Array(9)].map((_, i) => <div key={i} className="border-[0.5px] border-white/30"></div>)}
                     </div>
                   )}
-                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20">
-                    {[...Array(9)].map((_, i) => <div key={i} className="border-[0.5px] border-white/30"></div>)}
-                  </div>
                 </div>
 
                 <img
@@ -597,8 +705,8 @@ const Cropper = () => {
                   style={{
                     transform: `translate(${currentItem.crop.x}px, ${currentItem.crop.y}px) scale(${currentItem.zoom})`,
                     transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)',
-                    opacity: usePostProcessPreview ? 0 : 1,
-                    pointerEvents: usePostProcessPreview ? 'none' : 'auto'
+                    opacity: isPostProcess ? 0 : 1,
+                    pointerEvents: isPostProcess ? 'none' : 'auto'
                   }}
                 />
               </div>
@@ -669,122 +777,276 @@ const Cropper = () => {
         {/* 右側設定區 */}
         <aside className="w-80 bg-white border-l border-slate-200 flex flex-col shrink-0 shadow-sm">
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
-            <div className="space-y-4">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Maximize size={14} className="text-blue-500" /> 1. 解析度規格
-              </h3>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2">
               <div className="grid grid-cols-2 gap-2">
-                {[{ n: '自訂' },
-                  { n: '1:1', w: 1000, h: 1000 },
-                  { n: '4:3', w: 1000, h: 750 },
-                  { n: '16:9', w: 1600, h: 900 }
-                ].map(p => (
-                  <button
-                    key={p.n}
-                    onClick={() => p.n === '自訂' ? setSelectedPreset('custom') : handlePreset(p.n, p.w, p.h)}
-                    className={`py-1.5 rounded-lg border text-sm font-bold ${selectedPreset === p.n || (p.n === '自訂' && selectedPreset === 'custom') ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-100'}`}
-                  >
-                    {p.n}
-                  </button>
-                ))}
+                <button
+                  onClick={() => setStep('crop')}
+                  aria-pressed={!isPostProcess}
+                  disabled={isPreCroppedItem}
+                  className={`py-2 rounded-xl text-sm font-black transition-all ${!isPostProcess ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'} ${isPreCroppedItem ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Step 1: Crop
+                </button>
+                <button
+                  onClick={() => setStep('postprocess')}
+                  aria-pressed={isPostProcess}
+                  disabled={isPostprocessDisabled}
+                  className={`py-2 rounded-xl text-sm font-black transition-all ${isPostProcess ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'} ${isPostprocessDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Step 2: Postprocess
+                </button>
               </div>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <input type="number" value={customWidth} onChange={(e) => handleSizeInput('width', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
-                  <span className="text-sm text-slate-400 block text-center mt-1">寬度</span>
-                </div>
-                <div className="flex-1">
-                  <input type="number" value={customHeight} onChange={(e) => handleSizeInput('height', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
-                  <span className="text-sm text-slate-400 block text-center mt-1">高度</span>
-                </div>
+              <div className="text-xs text-slate-400 font-semibold px-1 pt-2">
+                Step 1 調整裁切與縮放；Step 2 加背景、圓角與留白後輸出
               </div>
             </div>
 
-            {/* 影像對齊與同步 */}
             {!isPostProcess && (
-              <div className="space-y-3 pt-2 border-t border-slate-100">
-                <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Move size={14} className="text-blue-500" /> 2. 影像對齊
-                </h3>
-                {currentItem?.isPreCropped && (
-                  <div className="text-sm text-blue-600 font-semibold bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
-                    此圖片已裁切，直接進入 Step 2，Step 1 已鎖定。
+              <>
+                <div className="space-y-4">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Maximize size={14} className="text-blue-500" /> 1. 解析度規格
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[{ n: '自訂' },
+                      { n: '1:1', w: 1000, h: 1000 },
+                      { n: '4:3', w: 1000, h: 750 },
+                      { n: '16:9', w: 1600, h: 900 }
+                    ].map(p => (
+                      <button
+                        key={p.n}
+                        onClick={() => p.n === '自訂' ? setSelectedPreset('custom') : handlePreset(p.n, p.w, p.h)}
+                        className={`py-1.5 rounded-lg border text-sm font-bold ${selectedPreset === p.n || (p.n === '自訂' && selectedPreset === 'custom') ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-100'}`}
+                      >
+                        {p.n}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <input type="number" value={customWidth} onChange={(e) => handleSizeInput('width', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
+                      <span className="text-sm text-slate-400 block text-center mt-1">寬度</span>
+                    </div>
+                    <div className="flex-1">
+                      <input type="number" value={customHeight} onChange={(e) => handleSizeInput('height', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
+                      <span className="text-sm text-slate-400 block text-center mt-1">高度</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 影像對齊與同步 */}
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Move size={14} className="text-blue-500" /> 2. 影像對齊
+                  </h3>
+                  <button
+                    onClick={() => updateCurrentItem({ crop: { x: 0, y: 0 } })}
+                    className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                  >
+                    <AlignCenter size={16} /> 垂直水平置中
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => fitImageToFrame('width')}
+                      className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                    >
+                      <ArrowLeftRight size={16} /> 寬度貼合
+                    </button>
+                    <button
+                      onClick={() => fitImageToFrame('height')}
+                      className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                    >
+                      <ArrowUpDown size={16} /> 高度貼合
+                    </button>
+                  </div>
+                  <button
+                    onClick={applyCurrentSettingsToAll}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md"
+                  >
+                    <Copy size={16} /> 同步當前設定至全部
+                  </button>
+                  <div className="text-sm text-slate-400 font-semibold">
+                    解析度與品質為全域設定，已套用全部圖片
+                  </div>
+                </div>
+
+                {/* 品質與體積 */}
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Gauge size={14} /> 3. 壓縮品質與體積
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-slate-600">導出品質</span>
+                      <span className="text-sm font-black text-blue-600">{Math.round(quality * 100)}%</span>
+                    </div>
+                    <input
+                      type="range" min="0.1" max="1.0" step="0.01" value={quality}
+                      onChange={(e) => setQuality(parseFloat(e.target.value))}
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                    />
+
+                    <div className="bg-white p-3 rounded-xl flex items-center justify-between border border-slate-200">
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <HardDrive size={14} />
+                        <span className="text-sm font-black uppercase">預估體積</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-lg font-black text-slate-800 font-mono">{fileSize || '--'}</span>
+                        <span className="ml-1 text-sm font-bold text-slate-400">KB</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {isPostProcess && (
+              <div className="space-y-3">
+                {isPreCroppedItem && (
+                  <div className="text-xs text-blue-600 font-semibold bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                    此圖片已裁切，已略過 Step 1，可直接調整後製效果與匯出。
                   </div>
                 )}
-                <button
-                  onClick={() => updateCurrentItem({ crop: { x: 0, y: 0 } })}
-                  disabled={!currentItem || isStep1Locked}
-                  className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-                >
-                  <AlignCenter size={16} /> 垂直水平置中
-                </button>
-                <div className="grid grid-cols-2 gap-2">
+                {isPostprocessDisabled && (
+                  <div className="text-xs text-slate-400 font-semibold bg-white border border-slate-200 rounded-xl px-3 py-2">
+                    尚未選取圖片，請先從左側隊列點選
+                  </div>
+                )}
+                <div className={`p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4 ${isPostprocessDisabled ? 'opacity-60 pointer-events-none' : ''}`}>
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Postprocess 設定</h3>
+                  <div className="space-y-2">
+                    <span className="text-sm font-bold text-slate-600">背景顏色</span>
+                    <div className="flex items-center gap-2">
+                      {['#ffffff', '#0f172a', '#f8fafc', '#f97316', '#22c55e', '#2563eb', '#e11d48', '#111827'].map(color => (
+                        <button
+                          key={color}
+                          onClick={() => {
+                            setBgColorInput(color);
+                            updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: color } });
+                          }}
+                          className={`h-8 w-8 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${currentItem?.postprocess?.bgColor === color ? 'border-blue-600 ring-2 ring-blue-200' : 'border-slate-200'}`}
+                          style={{ backgroundColor: color }}
+                          aria-label={`set background ${color}`}
+                          disabled={isPostprocessDisabled}
+                        />
+                      ))}
+                      <input
+                        type="text"
+                        value={bgColorInput}
+                        onChange={(e) => {
+                          const nextValue = e.target.value.trim();
+                          setBgColorInput(nextValue);
+                          if (currentItem && isValidHexColor(nextValue)) {
+                            updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: nextValue.toLowerCase() } });
+                          }
+                        }}
+                        onBlur={() => {
+                          if (!isValidHexColor(bgColorInput)) {
+                            setBgColorInput(currentItem?.postprocess?.bgColor || '#ffffff');
+                          }
+                        }}
+                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                        placeholder="#ffffff"
+                        disabled={isPostprocessDisabled}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-slate-600">Padding</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          max="120"
+                          value={currentItem?.postprocess?.padding ?? 0}
+                          onChange={(e) => updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), padding: Math.min(120, Math.max(0, parseInt(e.target.value) || 0)) } })}
+                          className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-center outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                          disabled={isPostprocessDisabled}
+                        />
+                        <span className="text-xs text-slate-400">px</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="120"
+                      step="1"
+                      value={currentItem?.postprocess?.padding ?? 0}
+                      onChange={(e) => updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), padding: parseInt(e.target.value) } })}
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={isPostprocessDisabled}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-slate-600">Outer Radius</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          max="120"
+                          value={currentItem?.postprocess?.outerRadius ?? 0}
+                          onChange={(e) => updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), outerRadius: Math.min(120, Math.max(0, parseInt(e.target.value) || 0)) } })}
+                          className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-center outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                          disabled={isPostprocessDisabled}
+                        />
+                        <span className="text-xs text-slate-400">px</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="120"
+                      step="1"
+                      value={currentItem?.postprocess?.outerRadius ?? 0}
+                      onChange={(e) => updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), outerRadius: parseInt(e.target.value) } })}
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={isPostprocessDisabled}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-slate-600">Inner Radius</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          max="120"
+                          value={currentItem?.postprocess?.innerRadius ?? 0}
+                          onChange={(e) => updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), innerRadius: Math.min(120, Math.max(0, parseInt(e.target.value) || 0)) } })}
+                          className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-center outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                          disabled={isPostprocessDisabled}
+                        />
+                        <span className="text-xs text-slate-400">px</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="120"
+                      step="1"
+                      value={currentItem?.postprocess?.innerRadius ?? 0}
+                      onChange={(e) => updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), innerRadius: parseInt(e.target.value) } })}
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={isPostprocessDisabled}
+                    />
+                  </div>
+
                   <button
-                    onClick={() => fitImageToFrame('width')}
-                    disabled={!currentItem || isStep1Locked}
-                    className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+                    onClick={applyCurrentPostprocessToAll}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black transition-all shadow-md disabled:bg-slate-300 disabled:text-slate-400 disabled:cursor-not-allowed"
+                    disabled={isPostprocessDisabled}
                   >
-                    <ArrowLeftRight size={16} /> 寬度貼合
+                    <Copy size={16} /> 套用目前設定至全部
                   </button>
-                  <button
-                    onClick={() => fitImageToFrame('height')}
-                    disabled={!currentItem || isStep1Locked}
-                    className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-                  >
-                    <ArrowUpDown size={16} /> 高度貼合
-                  </button>
-                </div>
-                <button
-                  onClick={applyCurrentSettingsToAll}
-                  disabled={!currentItem || isStep1Locked}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-                >
-                  <Copy size={16} /> 同步當前設定至全部
-                </button>
-                <div className="text-sm text-slate-400 font-semibold">
-                  解析度與品質為全域設定，已套用全部圖片
                 </div>
               </div>
             )}
-            {isPostProcess && (
-              <div className="space-y-3 pt-2 border-t border-slate-100">
-                <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Move size={14} className="text-blue-500" /> 2. 後製設定
-                </h3>
-                <div className="text-sm text-blue-600 font-semibold bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
-                  此圖片已裁切，已略過 Step 1，可直接調整品質與匯出。
-                </div>
-              </div>
-            )}
-
-            {/* 品質與體積 */}
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Gauge size={14} /> 3. 壓縮品質與體積
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-600">導出品質</span>
-                  <span className="text-sm font-black text-blue-600">{Math.round(quality * 100)}%</span>
-                </div>
-                <input
-                  type="range" min="0.1" max="1.0" step="0.01" value={quality}
-                  onChange={(e) => setQuality(parseFloat(e.target.value))}
-                  className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                />
-
-                <div className="bg-white p-3 rounded-xl flex items-center justify-between border border-slate-200">
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <HardDrive size={14} />
-                    <span className="text-sm font-black uppercase">預估體積</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-lg font-black text-slate-800 font-mono">{fileSize || '--'}</span>
-                    <span className="ml-1 text-sm font-bold text-slate-400">KB</span>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </aside>
       </div>
