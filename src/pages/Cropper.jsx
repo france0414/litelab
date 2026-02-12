@@ -23,6 +23,7 @@ const Cropper = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState('4:3');
   const [lastFitMode, setLastFitMode] = useState(null);
+  const [step, setStep] = useState('crop');
 
   // 互動狀態
   const [isDragging, setIsDragging] = useState(false);
@@ -32,6 +33,10 @@ const Cropper = () => {
   const imageRef = useRef(null);
 
   const currentItem = imageList[currentIndex] || null;
+  const isPostProcess = step === 'postprocess';
+  const isPreCroppedItem = !!currentItem?.isPreCropped;
+  const usePostProcessPreview = isPreCroppedItem;
+  const isStep1Locked = isPreCroppedItem;
 
   // 動態載入 JSZip
   const loadJSZip = () => {
@@ -72,7 +77,51 @@ const Cropper = () => {
               crop: { x: 0, y: 0 },
               zoom: 1,
               width: img.naturalWidth,
-              height: img.naturalHeight
+              height: img.naturalHeight,
+              isPreCropped: false
+            };
+            setImageList(prev => {
+              const updated = [...prev, newItem];
+              if (prev.length === 0 && index === 0) setCurrentIndex(0);
+              return updated;
+            });
+          };
+          img.src = src;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
+  const handlePreCroppedUpload = (files) => {
+    const remaining = Math.max(0, MAX_IMAGES - imageList.length);
+    if (remaining === 0) {
+      window.alert(`單次最多可加入 ${MAX_IMAGES} 張圖片，請先清空或下載後再上傳。`);
+      return;
+    }
+
+    const allFiles = Array.from(files);
+    const filesToAdd = allFiles.slice(0, remaining);
+    if (filesToAdd.length < allFiles.length) {
+      window.alert(`已超過上限，僅加入前 ${remaining} 張圖片。`);
+    }
+
+    filesToAdd.forEach((file, index) => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const src = reader.result;
+          const img = new Image();
+          img.onload = () => {
+            const newItem = {
+              id: Date.now() + Math.random(),
+              src,
+              name: file.name.split('.')[0],
+              crop: { x: 0, y: 0 },
+              zoom: 1,
+              width: img.naturalWidth,
+              height: img.naturalHeight,
+              isPreCropped: true
             };
             setImageList(prev => {
               const updated = [...prev, newItem];
@@ -91,26 +140,50 @@ const Cropper = () => {
 
   // 2. 即時預估體積 (Debounced)
   const estimateSize = useCallback(() => {
-    if (!currentItem || !imageRef.current || !containerRef.current) return;
+    if (!currentItem || !imageRef.current) return;
 
     const canvas = document.createElement('canvas');
     const img = imageRef.current;
     canvas.width = customWidth;
     canvas.height = customHeight;
     const ctx = canvas.getContext('2d');
-    const rect = containerRef.current.getBoundingClientRect();
 
-    const previewRefSize = 680;
-    const scale = customWidth / (aspect >= 1 ? previewRefSize : previewRefSize * aspect);
+    if (currentItem.isPreCropped) {
+      const imageAspect = img.naturalWidth / img.naturalHeight;
+      const targetAspect = customWidth / customHeight;
+      let drawWidth = customWidth;
+      let drawHeight = customHeight;
+      let dx = 0;
+      let dy = 0;
 
-    const dw = img.naturalWidth * currentItem.zoom * scale;
-    const dh = img.naturalHeight * currentItem.zoom * scale;
-    const dx = (customWidth / 2) + (currentItem.crop.x * scale) - (dw / 2);
-    const dy = (customHeight / 2) + (currentItem.crop.y * scale) - (dh / 2);
+      if (Number.isFinite(imageAspect) && imageAspect > 0) {
+        if (imageAspect > targetAspect) {
+          drawWidth = customWidth;
+          drawHeight = customWidth / imageAspect;
+          dy = (customHeight - drawHeight) / 2;
+        } else if (imageAspect < targetAspect) {
+          drawHeight = customHeight;
+          drawWidth = customHeight * imageAspect;
+          dx = (customWidth - drawWidth) / 2;
+        }
+      }
 
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, dx, dy, dw, dh);
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, dx, dy, drawWidth, drawHeight);
+    } else {
+      const previewRefSize = 680;
+      const scale = customWidth / (aspect >= 1 ? previewRefSize : previewRefSize * aspect);
+
+      const dw = img.naturalWidth * currentItem.zoom * scale;
+      const dh = img.naturalHeight * currentItem.zoom * scale;
+      const dx = (customWidth / 2) + (currentItem.crop.x * scale) - (dw / 2);
+      const dy = (customHeight / 2) + (currentItem.crop.y * scale) - (dh / 2);
+
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, dx, dy, dw, dh);
+    }
 
     canvas.toBlob((blob) => {
       if (blob) {
@@ -124,6 +197,11 @@ const Cropper = () => {
     return () => clearTimeout(timer);
   }, [estimateSize]);
 
+  useEffect(() => {
+    if (!currentItem) return;
+    setStep(currentItem.isPreCropped ? 'postprocess' : 'crop');
+  }, [currentItem]);
+
   // 3. 更新當前圖片狀態
   const updateCurrentItem = (updates) => {
     setImageList(prev => prev.map((item, idx) =>
@@ -132,7 +210,7 @@ const Cropper = () => {
   };
 
   const applyCurrentSettingsToAll = () => {
-    if (!currentItem) return;
+    if (!currentItem || isStep1Locked) return;
     const { crop, zoom } = currentItem;
     const frameRect = containerRef.current?.getBoundingClientRect();
 
@@ -226,17 +304,42 @@ const Cropper = () => {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
-        const previewRefSize = 680;
-        const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+        if (item.isPreCropped) {
+          const imageAspect = img.naturalWidth / img.naturalHeight;
+          const targetAspect = targetWidth / targetHeight;
+          let drawWidth = targetWidth;
+          let drawHeight = targetHeight;
+          let dx = 0;
+          let dy = 0;
 
-        const dw = img.naturalWidth * item.zoom * scale;
-        const dh = img.naturalHeight * item.zoom * scale;
-        const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
-        const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
+          if (Number.isFinite(imageAspect) && imageAspect > 0) {
+            if (imageAspect > targetAspect) {
+              drawWidth = targetWidth;
+              drawHeight = targetWidth / imageAspect;
+              dy = (targetHeight - drawHeight) / 2;
+            } else if (imageAspect < targetAspect) {
+              drawHeight = targetHeight;
+              drawWidth = targetHeight * imageAspect;
+              dx = (targetWidth - drawWidth) / 2;
+            }
+          }
 
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, dx, dy, dw, dh);
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, dx, dy, drawWidth, drawHeight);
+        } else {
+          const previewRefSize = 680;
+          const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+
+          const dw = img.naturalWidth * item.zoom * scale;
+          const dh = img.naturalHeight * item.zoom * scale;
+          const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
+          const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
+
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, dx, dy, dw, dh);
+        }
         resolve(canvas.toDataURL('image/jpeg', targetQuality).split(',')[1]);
       };
       img.src = item.src;
@@ -251,17 +354,42 @@ const Cropper = () => {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
-        const previewRefSize = 680;
-        const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+        if (item.isPreCropped) {
+          const imageAspect = img.naturalWidth / img.naturalHeight;
+          const targetAspect = targetWidth / targetHeight;
+          let drawWidth = targetWidth;
+          let drawHeight = targetHeight;
+          let dx = 0;
+          let dy = 0;
 
-        const dw = img.naturalWidth * item.zoom * scale;
-        const dh = img.naturalHeight * item.zoom * scale;
-        const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
-        const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
+          if (Number.isFinite(imageAspect) && imageAspect > 0) {
+            if (imageAspect > targetAspect) {
+              drawWidth = targetWidth;
+              drawHeight = targetWidth / imageAspect;
+              dy = (targetHeight - drawHeight) / 2;
+            } else if (imageAspect < targetAspect) {
+              drawHeight = targetHeight;
+              drawWidth = targetHeight * imageAspect;
+              dx = (targetWidth - drawWidth) / 2;
+            }
+          }
 
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, dx, dy, dw, dh);
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, dx, dy, drawWidth, drawHeight);
+        } else {
+          const previewRefSize = 680;
+          const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+
+          const dw = img.naturalWidth * item.zoom * scale;
+          const dh = img.naturalHeight * item.zoom * scale;
+          const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
+          const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
+
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, dx, dy, dw, dh);
+        }
         resolve(canvas.toDataURL('image/jpeg', targetQuality));
       };
       img.src = item.src;
@@ -304,11 +432,12 @@ const Cropper = () => {
 
   // 互動事件
   const onMouseDown = (e) => {
-    if (!currentItem) return;
+    if (!currentItem || isStep1Locked) return;
     setIsDragging(true);
     setDragStart({ x: e.clientX - currentItem.crop.x, y: e.clientY - currentItem.crop.y });
   };
   const onMouseMove = (e) => {
+    if (isStep1Locked) return;
     if (isDragging) {
       setLastFitMode(null);
       updateCurrentItem({ crop: { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y } });
@@ -339,6 +468,11 @@ const Cropper = () => {
             <Upload size={16} />
             批次加入圖片
             <input type="file" className="hidden" accept="image/*" multiple onChange={onFileChange} />
+          </label>
+          <label className="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border border-blue-200">
+            <Upload size={16} />
+            匯入已裁切圖片（Step 2）
+            <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handlePreCroppedUpload(e.target.files)} />
           </label>
           {imageList.length > 0 && (
             <button
@@ -424,6 +558,7 @@ const Cropper = () => {
                 onMouseLeave={() => setIsDragging(false)}
                 onWheel={(e) => {
                   e.preventDefault();
+                  if (isStep1Locked) return;
                   const delta = e.deltaY * -0.0012;
                   setLastFitMode(null);
                   updateCurrentItem({ zoom: Math.min(Math.max(currentItem.zoom + delta, 0.01), 10) });
@@ -438,6 +573,16 @@ const Cropper = () => {
                     height: aspect < 1 ? 'min(92%, 680px)' : 'auto',
                   }}
                 >
+                  {usePostProcessPreview && (
+                    <div className="absolute inset-0 bg-white">
+                      <img
+                        src={currentItem.src}
+                        alt="Postprocess"
+                        draggable="false"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  )}
                   <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20">
                     {[...Array(9)].map((_, i) => <div key={i} className="border-[0.5px] border-white/30"></div>)}
                   </div>
@@ -451,7 +596,9 @@ const Cropper = () => {
                   className="crop-image absolute max-w-none select-none"
                   style={{
                     transform: `translate(${currentItem.crop.x}px, ${currentItem.crop.y}px) scale(${currentItem.zoom})`,
-                    transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)'
+                    transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)',
+                    opacity: usePostProcessPreview ? 0 : 1,
+                    pointerEvents: usePostProcessPreview ? 'none' : 'auto'
                   }}
                 />
               </div>
@@ -467,32 +614,36 @@ const Cropper = () => {
 
           {/* 底部微調列 */}
           <div className="bg-white border-t border-slate-200 p-6 flex items-center justify-between shrink-0 shadow-2xl">
-            <div className="flex-1 max-w-lg space-y-1">
-              <div className="flex justify-between items-center text-sm font-black text-slate-400 uppercase tracking-tighter">
-                <span className="flex items-center gap-1 italic">當前縮放百分比</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    value={currentItem ? Math.round(currentItem.zoom * 100) : 100}
-                    onChange={(e) => {
-                      setLastFitMode(null);
-                      updateCurrentItem({ zoom: (parseInt(e.target.value) || 1) / 100 });
-                    }}
-                    className="w-14 text-blue-600 bg-blue-50 rounded-md text-center font-black outline-none border border-blue-100"
-                  />
-                  <span>%</span>
+            {!isPostProcess && (
+              <div className="flex-1 max-w-lg space-y-1">
+                <div className="flex justify-between items-center text-sm font-black text-slate-400 uppercase tracking-tighter">
+                  <span className="flex items-center gap-1 italic">當前縮放百分比</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={currentItem ? Math.round(currentItem.zoom * 100) : 100}
+                      onChange={(e) => {
+                        setLastFitMode(null);
+                        updateCurrentItem({ zoom: (parseInt(e.target.value) || 1) / 100 });
+                      }}
+                      disabled={!currentItem || isStep1Locked}
+                      className="w-14 text-blue-600 bg-blue-50 rounded-md text-center font-black outline-none border border-blue-100 disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                    <span>%</span>
+                  </div>
                 </div>
+                <input
+                  type="range" min="0.01" max="5" step="0.01"
+                  value={currentItem ? currentItem.zoom : 1}
+                  onChange={(e) => {
+                    setLastFitMode(null);
+                    updateCurrentItem({ zoom: parseFloat(e.target.value) });
+                  }}
+                  disabled={!currentItem || isStep1Locked}
+                  className="w-full accent-blue-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
+                />
               </div>
-              <input
-                type="range" min="0.01" max="5" step="0.01"
-                value={currentItem ? currentItem.zoom : 1}
-                onChange={(e) => {
-                  setLastFitMode(null);
-                  updateCurrentItem({ zoom: parseFloat(e.target.value) });
-                }}
-                className="w-full accent-blue-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
+            )}
 
             <div className="flex items-center gap-4 ml-8">
               <button
@@ -550,40 +701,61 @@ const Cropper = () => {
             </div>
 
             {/* 影像對齊與同步 */}
-            <div className="space-y-3 pt-2 border-t border-slate-100">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Move size={14} className="text-blue-500" /> 2. 影像對齊
-              </h3>
-              <button
-                onClick={() => updateCurrentItem({ crop: { x: 0, y: 0 } })}
-                className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-              >
-                <AlignCenter size={16} /> 垂直水平置中
-              </button>
-              <div className="grid grid-cols-2 gap-2">
+            {!isPostProcess && (
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Move size={14} className="text-blue-500" /> 2. 影像對齊
+                </h3>
+                {currentItem?.isPreCropped && (
+                  <div className="text-sm text-blue-600 font-semibold bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                    此圖片已裁切，直接進入 Step 2，Step 1 已鎖定。
+                  </div>
+                )}
                 <button
-                  onClick={() => fitImageToFrame('width')}
-                  className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                  onClick={() => updateCurrentItem({ crop: { x: 0, y: 0 } })}
+                  disabled={!currentItem || isStep1Locked}
+                  className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
                 >
-                  <ArrowLeftRight size={16} /> 寬度貼合
+                  <AlignCenter size={16} /> 垂直水平置中
                 </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => fitImageToFrame('width')}
+                    disabled={!currentItem || isStep1Locked}
+                    className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+                  >
+                    <ArrowLeftRight size={16} /> 寬度貼合
+                  </button>
+                  <button
+                    onClick={() => fitImageToFrame('height')}
+                    disabled={!currentItem || isStep1Locked}
+                    className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+                  >
+                    <ArrowUpDown size={16} /> 高度貼合
+                  </button>
+                </div>
                 <button
-                  onClick={() => fitImageToFrame('height')}
-                  className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                  onClick={applyCurrentSettingsToAll}
+                  disabled={!currentItem || isStep1Locked}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
                 >
-                  <ArrowUpDown size={16} /> 高度貼合
+                  <Copy size={16} /> 同步當前設定至全部
                 </button>
+                <div className="text-sm text-slate-400 font-semibold">
+                  解析度與品質為全域設定，已套用全部圖片
+                </div>
               </div>
-              <button
-                onClick={applyCurrentSettingsToAll}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md"
-              >
-                <Copy size={16} /> 同步當前設定至全部
-              </button>
-              <div className="text-sm text-slate-400 font-semibold">
-                解析度與品質為全域設定，已套用全部圖片
+            )}
+            {isPostProcess && (
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Move size={14} className="text-blue-500" /> 2. 後製設定
+                </h3>
+                <div className="text-sm text-blue-600 font-semibold bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                  此圖片已裁切，已略過 Step 1，可直接調整品質與匯出。
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 品質與體積 */}
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
