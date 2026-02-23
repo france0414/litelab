@@ -661,7 +661,7 @@ const Cropper = () => {
           </Link>
           <label className="cursor-pointer bg-slate-700 hover:bg-teal-500 hover:text-white hover:border-teal-400 text-slate-100 px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border border-slate-600">
             <Upload size={16} />
-            批次加入圖片
+            批次加入圖片（最多 30 張）
             <input type="file" className="hidden" accept="image/*" multiple onChange={onFileChange} />
           </label>
           <label className="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border border-blue-200">
