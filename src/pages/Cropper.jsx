@@ -27,6 +27,7 @@ const Cropper = () => {
   const [lastFitMode, setLastFitMode] = useState(null);
   const [step, setStep] = useState('crop');
   const [bgColorInput, setBgColorInput] = useState('#ffffff');
+  const [outputFormat, setOutputFormat] = useState('jpeg');
 
   // 互動狀態
   const [isDragging, setIsDragging] = useState(false);
@@ -42,8 +43,19 @@ const Cropper = () => {
   const isPostProcess = effectiveStep === 'postprocess';
   const isStep1Locked = isPreCroppedItem || isPostProcess;
   const isPostprocessDisabled = !currentItem;
-
+  const isPngOutput = outputFormat === 'png';
+  const outputMime = isPngOutput ? 'image/png' : 'image/jpeg';
+  const outputExt = isPngOutput ? 'png' : 'jpg';
   const isValidHexColor = (value) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
+  const isTransparentColor = (value) => value?.toLowerCase() === 'transparent';
+  const currentPostprocess = currentItem?.postprocess || {};
+  const currentBgMode = currentPostprocess.bgMode || 'solid';
+  const currentGradient = currentPostprocess.bgGradient || {};
+  const gradientFromValue = isValidHexColor(currentGradient.from || '') ? currentGradient.from : '#ffffff';
+  const gradientToValue = isValidHexColor(currentGradient.to || '') ? currentGradient.to : '#0f172a';
+  const gradientAngleValue = Number.isFinite(currentGradient.angle) ? currentGradient.angle : 135;
+  const gradientCxValue = Number.isFinite(currentGradient.cx) ? currentGradient.cx : 50;
+  const gradientCyValue = Number.isFinite(currentGradient.cy) ? currentGradient.cy : 50;
 
   // 動態載入 JSZip
   const loadJSZip = () => {
@@ -96,12 +108,21 @@ const Cropper = () => {
               name: file.name.split('.')[0],
               crop: { x: 0, y: 0 },
               zoom: 1,
-              postprocess: {
-                outerRadius: 0,
-                innerRadius: 0,
-                padding: 0,
-                bgColor: '#ffffff'
-              },
+                postprocess: {
+                  outerRadius: 0,
+                  innerRadius: 0,
+                  padding: 0,
+                  bgColor: '#ffffff',
+                  bgMode: 'solid',
+                  bgGradient: {
+                    type: 'linear',
+                    from: '#ffffff',
+                    to: '#0f172a',
+                    angle: 135,
+                    cx: 50,
+                    cy: 50
+                  }
+                },
               width: img.naturalWidth,
               height: img.naturalHeight,
               isPreCropped: false
@@ -145,12 +166,21 @@ const Cropper = () => {
               name: file.name.split('.')[0],
               crop: { x: 0, y: 0 },
               zoom: 1,
-              postprocess: {
-                outerRadius: 0,
-                innerRadius: 0,
-                padding: 0,
-                bgColor: '#ffffff'
-              },
+                postprocess: {
+                  outerRadius: 0,
+                  innerRadius: 0,
+                  padding: 0,
+                  bgColor: '#ffffff',
+                  bgMode: 'solid',
+                  bgGradient: {
+                    type: 'linear',
+                    from: '#ffffff',
+                    to: '#0f172a',
+                    angle: 135,
+                    cx: 50,
+                    cy: 50
+                  }
+                },
               width: img.naturalWidth,
               height: img.naturalHeight,
               isPreCropped: true
@@ -181,7 +211,7 @@ const Cropper = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     if (isPostProcess || currentItem.isPreCropped) {
-      renderPostprocessToCanvas(ctx, img, currentItem, customWidth, customHeight);
+      renderPostprocessToCanvas(ctx, img, currentItem, customWidth, customHeight, outputFormat);
     } else {
       const previewRefSize = 680;
       const scale = customWidth / (aspect >= 1 ? previewRefSize : previewRefSize * aspect);
@@ -191,8 +221,10 @@ const Cropper = () => {
       const dx = (customWidth / 2) + (currentItem.crop.x * scale) - (dw / 2);
       const dy = (customHeight / 2) + (currentItem.crop.y * scale) - (dh / 2);
 
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (!isPngOutput) {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
       ctx.drawImage(img, dx, dy, dw, dh);
     }
 
@@ -200,8 +232,8 @@ const Cropper = () => {
       if (blob) {
         setFileSize((blob.size / 1024).toFixed(1));
       }
-    }, 'image/jpeg', quality);
-  }, [currentItem, aspect, customWidth, customHeight, quality, isPostProcess]);
+    }, outputMime, isPngOutput ? undefined : quality);
+  }, [currentItem, aspect, customWidth, customHeight, quality, isPostProcess, outputMime, isPngOutput, outputFormat]);
 
   useEffect(() => {
     const timer = setTimeout(estimateSize, 500);
@@ -341,10 +373,22 @@ const Cropper = () => {
     ctx.arcTo(x, y, x + safeRadius, y, safeRadius);
   };
 
-  const renderPostprocessToCanvas = (ctx, img, item, targetWidth, targetHeight) => {
+  const renderPostprocessToCanvas = (ctx, img, item, targetWidth, targetHeight, format = 'jpeg') => {
     const previewRefSize = 680;
     const postprocess = item?.postprocess || {};
-    const resolvedBgColor = isValidHexColor(postprocess.bgColor || '') ? postprocess.bgColor : '#ffffff';
+    const rawBgColor = postprocess.bgColor || '';
+    const isTransparentBg = isTransparentColor(rawBgColor);
+    const resolvedBgColor = isTransparentBg
+      ? '#ffffff'
+      : (isValidHexColor(rawBgColor) ? rawBgColor : '#ffffff');
+    const bgMode = postprocess.bgMode || 'solid';
+    const gradientConfig = postprocess.bgGradient || {};
+    const gradientType = gradientConfig.type || 'linear';
+    const gradientFrom = isValidHexColor(gradientConfig.from || '') ? gradientConfig.from : '#ffffff';
+    const gradientTo = isValidHexColor(gradientConfig.to || '') ? gradientConfig.to : '#0f172a';
+    const gradientAngle = Number.isFinite(gradientConfig.angle) ? gradientConfig.angle : 135;
+    const gradientCx = Number.isFinite(gradientConfig.cx) ? Math.max(0, Math.min(100, gradientConfig.cx)) : 50;
+    const gradientCy = Number.isFinite(gradientConfig.cy) ? Math.max(0, Math.min(100, gradientConfig.cy)) : 50;
 
     const maxPadding = Math.min(targetWidth, targetHeight) / 2;
     const padding = Math.max(0, Math.min(postprocess.padding || 0, maxPadding));
@@ -359,8 +403,34 @@ const Cropper = () => {
     drawRoundedRectPath(ctx, 0, 0, targetWidth, targetHeight, outerRadius);
     ctx.clip();
 
-    ctx.fillStyle = resolvedBgColor;
-    ctx.fillRect(0, 0, targetWidth, targetHeight);
+    if (bgMode === 'solid') {
+      if (!(isTransparentBg && format === 'png')) {
+        ctx.fillStyle = resolvedBgColor;
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+      }
+    } else if (bgMode === 'linear') {
+      const rad = (gradientAngle % 360) * (Math.PI / 180);
+      const halfW = targetWidth / 2;
+      const halfH = targetHeight / 2;
+      const x0 = halfW - Math.cos(rad) * halfW;
+      const y0 = halfH - Math.sin(rad) * halfH;
+      const x1 = halfW + Math.cos(rad) * halfW;
+      const y1 = halfH + Math.sin(rad) * halfH;
+      const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
+      gradient.addColorStop(0, gradientFrom);
+      gradient.addColorStop(1, gradientTo);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+    } else if (bgMode === 'radial') {
+      const centerX = (gradientCx / 100) * targetWidth;
+      const centerY = (gradientCy / 100) * targetHeight;
+      const radius = Math.max(targetWidth, targetHeight) / 2;
+      const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+      gradient.addColorStop(0, gradientFrom);
+      gradient.addColorStop(1, gradientTo);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+    }
 
     if (innerWidth > 0 && innerHeight > 0) {
       const innerX = padding;
@@ -409,7 +479,7 @@ const Cropper = () => {
 
     ctx.restore();
   };
-  const renderToCanvasForZip = (item, targetWidth, targetHeight, targetQuality, renderStep) => {
+  const renderToCanvasForZip = (item, targetWidth, targetHeight, targetQuality, renderStep, format) => {
     return new Promise((resolve) => {
       const canvas = document.createElement('canvas');
       const img = new Image();
@@ -418,7 +488,7 @@ const Cropper = () => {
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         if (renderStep === 'postprocess' || item.isPreCropped) {
-          renderPostprocessToCanvas(ctx, img, item, targetWidth, targetHeight);
+          renderPostprocessToCanvas(ctx, img, item, targetWidth, targetHeight, format);
         } else {
           const previewRefSize = 680;
           const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
@@ -428,9 +498,15 @@ const Cropper = () => {
           const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
           const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
 
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          if (format !== 'png') {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
           ctx.drawImage(img, dx, dy, dw, dh);
+        }
+        if (format === 'png') {
+          resolve(canvas.toDataURL('image/png').split(',')[1]);
+          return;
         }
         resolve(canvas.toDataURL('image/jpeg', targetQuality).split(',')[1]);
       };
@@ -438,7 +514,7 @@ const Cropper = () => {
     });
   };
 
-  const renderToCanvasDataUrl = (item, targetWidth, targetHeight, targetQuality) => {
+  const renderToCanvasDataUrl = (item, targetWidth, targetHeight, targetQuality, format) => {
     return new Promise((resolve) => {
       const canvas = document.createElement('canvas');
       const img = new Image();
@@ -447,7 +523,7 @@ const Cropper = () => {
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         if (isPostProcess || item.isPreCropped) {
-          renderPostprocessToCanvas(ctx, img, item, targetWidth, targetHeight);
+          renderPostprocessToCanvas(ctx, img, item, targetWidth, targetHeight, format);
         } else {
           const previewRefSize = 680;
           const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
@@ -457,9 +533,15 @@ const Cropper = () => {
           const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
           const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
 
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          if (format !== 'png') {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
           ctx.drawImage(img, dx, dy, dw, dh);
+        }
+        if (format === 'png') {
+          resolve(canvas.toDataURL('image/png'));
+          return;
         }
         resolve(canvas.toDataURL('image/jpeg', targetQuality));
       };
@@ -498,8 +580,8 @@ const Cropper = () => {
       }
     };
 
-    renderPostprocessToCanvas(ctx, imageRef.current, previewItem, rect.width, rect.height);
-  }, [currentItem, isPostProcess, aspect, customWidth, customHeight]);
+    renderPostprocessToCanvas(ctx, imageRef.current, previewItem, rect.width, rect.height, outputFormat);
+  }, [currentItem, isPostProcess, aspect, customWidth, customHeight, outputFormat]);
 
   const batchDownloadZip = async () => {
     if (imageList.length === 0) return;
@@ -510,8 +592,8 @@ const Cropper = () => {
       const zip = new JSZip();
       for (let i = 0; i < imageList.length; i++) {
         const item = imageList[i];
-        const base64Data = await renderToCanvasForZip(item, customWidth, customHeight, quality, exportStep);
-        zip.file(`${item.name || `img_${i + 1}`}.jpg`, base64Data, { base64: true });
+        const base64Data = await renderToCanvasForZip(item, customWidth, customHeight, quality, exportStep, outputFormat);
+        zip.file(`${item.name || `img_${i + 1}`}.${outputExt}`, base64Data, { base64: true });
       }
       const content = await zip.generateAsync({ type: "blob" });
       const link = document.createElement('a');
@@ -532,13 +614,13 @@ const Cropper = () => {
     if (!currentItem) return;
     setIsSingleExporting(true);
     try {
-      const dataUrl = await renderToCanvasDataUrl(currentItem, customWidth, customHeight, quality);
+      const dataUrl = await renderToCanvasDataUrl(currentItem, customWidth, customHeight, quality, outputFormat);
       const now = new Date();
       const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
       const baseName = currentItem.name || `img_${currentIndex + 1}`;
       const link = document.createElement('a');
       link.href = dataUrl;
-      link.download = `${baseName}_crop_${stamp}.jpg`;
+      link.download = `${baseName}_crop_${stamp}.${outputExt}`;
       link.click();
     } catch (e) { console.error(e); } finally { setIsSingleExporting(false); }
   };
@@ -801,6 +883,27 @@ const Cropper = () => {
               </div>
             </div>
 
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2">
+              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">輸出格式</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setOutputFormat('jpeg')}
+                  className={`py-2 rounded-xl text-sm font-black transition-all ${!isPngOutput ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+                >
+                  JPG
+                </button>
+                <button
+                  onClick={() => setOutputFormat('png')}
+                  className={`py-2 rounded-xl text-sm font-black transition-all ${isPngOutput ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+                >
+                  PNG 透明
+                </button>
+              </div>
+              <div className="text-xs text-slate-400 font-semibold">
+                PNG 會保留圓角外圍透明，背景色仍會顯示
+              </div>
+            </div>
+
             {!isPostProcess && (
               <>
                 <div className="space-y-4">
@@ -915,43 +1018,215 @@ const Cropper = () => {
                 )}
                 <div className={`p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4 ${isPostprocessDisabled ? 'opacity-60 pointer-events-none' : ''}`}>
                   <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Postprocess 設定</h3>
-                  <div className="space-y-2">
-                    <span className="text-sm font-bold text-slate-600">背景顏色</span>
-                    <div className="flex items-center gap-2">
-                      {['#ffffff', '#0f172a', '#f8fafc', '#f97316', '#22c55e', '#2563eb', '#e11d48', '#111827'].map(color => (
-                        <button
-                          key={color}
-                          onClick={() => {
-                            setBgColorInput(color);
-                            updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: color } });
-                          }}
-                          className={`h-8 w-8 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${currentItem?.postprocess?.bgColor === color ? 'border-blue-600 ring-2 ring-blue-200' : 'border-slate-200'}`}
-                          style={{ backgroundColor: color }}
-                          aria-label={`set background ${color}`}
-                          disabled={isPostprocessDisabled}
-                        />
-                      ))}
-                      <input
-                        type="text"
-                        value={bgColorInput}
-                        onChange={(e) => {
-                          const nextValue = e.target.value.trim();
-                          setBgColorInput(nextValue);
-                          if (currentItem && isValidHexColor(nextValue)) {
-                            updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: nextValue.toLowerCase() } });
-                          }
-                        }}
-                        onBlur={() => {
-                          if (!isValidHexColor(bgColorInput)) {
-                            setBgColorInput(currentItem?.postprocess?.bgColor || '#ffffff');
-                          }
-                        }}
-                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none disabled:bg-slate-100 disabled:text-slate-400"
-                        placeholder="#ffffff"
-                        disabled={isPostprocessDisabled}
-                      />
+                  <div className="space-y-3">
+                    <span className="text-sm font-bold text-slate-600">背景模式</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => updateCurrentItem({ postprocess: { ...currentPostprocess, bgMode: 'solid' } })}
+                        className={`py-2 rounded-xl text-sm font-black transition-all ${currentBgMode === 'solid' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+                      >
+                        純色
+                      </button>
+                      <button
+                        onClick={() => updateCurrentItem({ postprocess: { ...currentPostprocess, bgMode: 'linear', bgGradient: { ...currentGradient, type: 'linear' } } })}
+                        className={`py-2 rounded-xl text-sm font-black transition-all ${currentBgMode === 'linear' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+                      >
+                        線性
+                      </button>
+                      <button
+                        onClick={() => updateCurrentItem({ postprocess: { ...currentPostprocess, bgMode: 'radial', bgGradient: { ...currentGradient, type: 'radial' } } })}
+                        className={`py-2 rounded-xl text-sm font-black transition-all ${currentBgMode === 'radial' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+                      >
+                        放射
+                      </button>
                     </div>
                   </div>
+
+                  {currentBgMode === 'solid' && (
+                    <div className="space-y-2">
+                      <span className="text-sm font-bold text-slate-600">背景顏色</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {['#ffffff', '#0f172a', '#f8fafc', '#f97316', '#22c55e', '#2563eb', '#e11d48', '#111827'].map(color => (
+                          <button
+                            key={color}
+                            onClick={() => {
+                              setBgColorInput(color);
+                              updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: color } });
+                            }}
+                            className={`h-8 w-8 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${currentItem?.postprocess?.bgColor === color ? 'border-blue-600 ring-2 ring-blue-200' : 'border-slate-200'}`}
+                            style={{ backgroundColor: color }}
+                            aria-label={`set background ${color}`}
+                            disabled={isPostprocessDisabled}
+                          />
+                        ))}
+                        <button
+                          onClick={() => {
+                            setBgColorInput('transparent');
+                            updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: 'transparent' } });
+                          }}
+                          className={`h-8 w-8 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isTransparentColor(currentItem?.postprocess?.bgColor || '') ? 'border-blue-600 ring-2 ring-blue-200' : 'border-slate-200'}`}
+                          style={{ backgroundImage: 'linear-gradient(45deg, #e5e7eb 25%, transparent 25%, transparent 75%, #e5e7eb 75%, #e5e7eb), linear-gradient(45deg, #e5e7eb 25%, transparent 25%, transparent 75%, #e5e7eb 75%, #e5e7eb)', backgroundSize: '8px 8px', backgroundPosition: '0 0, 4px 4px' }}
+                          aria-label="set background transparent"
+                          disabled={isPostprocessDisabled}
+                        />
+                        <label className="h-8 w-8 rounded-lg border border-slate-200 overflow-hidden cursor-pointer disabled:cursor-not-allowed">
+                          <input
+                            type="color"
+                            value={isValidHexColor(currentItem?.postprocess?.bgColor || '') ? (currentItem?.postprocess?.bgColor || '#ffffff') : '#ffffff'}
+                            onChange={(e) => {
+                              const nextColor = e.target.value.toLowerCase();
+                              setBgColorInput(nextColor);
+                              updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: nextColor } });
+                            }}
+                            className="w-full h-full border-0 p-0 bg-transparent cursor-pointer"
+                            disabled={isPostprocessDisabled}
+                            aria-label="pick background color"
+                          />
+                        </label>
+                        <input
+                          type="text"
+                          value={bgColorInput}
+                          onChange={(e) => {
+                            const nextValue = e.target.value.trim();
+                            setBgColorInput(nextValue);
+                            if (currentItem && (isValidHexColor(nextValue) || isTransparentColor(nextValue))) {
+                              updateCurrentItem({ postprocess: { ...(currentItem?.postprocess || {}), bgColor: nextValue.toLowerCase() } });
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!isValidHexColor(bgColorInput) && !isTransparentColor(bgColorInput)) {
+                              setBgColorInput(currentItem?.postprocess?.bgColor || '#ffffff');
+                            }
+                          }}
+                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                          placeholder="#ffffff"
+                          disabled={isPostprocessDisabled}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {currentBgMode !== 'solid' && (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <span className="text-sm font-bold text-slate-600">漸層顏色</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-2">
+                            <input
+                              type="color"
+                              value={gradientFromValue}
+                              onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, from: e.target.value.toLowerCase() } } })}
+                              className="h-8 w-10 border-0 p-0 bg-transparent cursor-pointer"
+                              disabled={isPostprocessDisabled}
+                              aria-label="gradient from color"
+                            />
+                            <span className="text-xs font-bold text-slate-500">起點</span>
+                          </label>
+                          <label className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-2">
+                            <input
+                              type="color"
+                              value={gradientToValue}
+                              onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, to: e.target.value.toLowerCase() } } })}
+                              className="h-8 w-10 border-0 p-0 bg-transparent cursor-pointer"
+                              disabled={isPostprocessDisabled}
+                              aria-label="gradient to color"
+                            />
+                            <span className="text-xs font-bold text-slate-500">終點</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {currentBgMode === 'linear' && (
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-bold text-slate-600">角度</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                max="360"
+                                value={Math.round(gradientAngleValue)}
+                                onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, angle: Math.min(360, Math.max(0, parseInt(e.target.value) || 0)) } } })}
+                                className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-center outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                                disabled={isPostprocessDisabled}
+                              />
+                              <span className="text-xs text-slate-400">deg</span>
+                            </div>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="360"
+                            step="1"
+                            value={gradientAngleValue}
+                            onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, angle: parseInt(e.target.value) } } })}
+                            className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={isPostprocessDisabled}
+                          />
+                        </div>
+                      )}
+
+                      {currentBgMode === 'radial' && (
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-bold text-slate-600">中心 X</span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={Math.round(gradientCxValue)}
+                                  onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, cx: Math.min(100, Math.max(0, parseInt(e.target.value) || 0)) } } })}
+                                  className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-center outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                                  disabled={isPostprocessDisabled}
+                                />
+                                <span className="text-xs text-slate-400">%</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={gradientCxValue}
+                              onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, cx: parseInt(e.target.value) } } })}
+                              className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              disabled={isPostprocessDisabled}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-bold text-slate-600">中心 Y</span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={Math.round(gradientCyValue)}
+                                  onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, cy: Math.min(100, Math.max(0, parseInt(e.target.value) || 0)) } } })}
+                                  className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-center outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                                  disabled={isPostprocessDisabled}
+                                />
+                                <span className="text-xs text-slate-400">%</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={gradientCyValue}
+                              onChange={(e) => updateCurrentItem({ postprocess: { ...currentPostprocess, bgGradient: { ...currentGradient, cy: parseInt(e.target.value) } } })}
+                              className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              disabled={isPostprocessDisabled}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
