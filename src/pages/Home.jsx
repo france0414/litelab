@@ -34,7 +34,7 @@ const Home = () => {
               <div>
                 <h2 className="text-lg font-black text-white">Cropper</h2>
                 <p className="mt-2 text-sm text-slate-300">
-                  批次裁切與輸出，保持一致尺寸與品質，快速完成整批圖片整理。
+                  批次裁切與輸出，統一尺寸與品質；再加上背景、圓角與留白，快速完成整批圖片整理。
                 </p>
               </div>
             </div>
