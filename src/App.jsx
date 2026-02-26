@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import Home from './pages/Home.jsx';
 import Cropper from './pages/Cropper.jsx';
+import TableConverter from './pages/TableConverter/index.jsx';
 
 const RedirectHandler = () => {
   const location = useLocation();
@@ -25,6 +26,7 @@ const App = () => {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/cropper" element={<Cropper />} />
+        <Route path="/table-converter" element={<TableConverter />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

@@ -29,22 +29,43 @@ const Home = () => {
             </p>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.45)] backdrop-blur">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-black text-white">Cropper</h2>
-                <p className="mt-2 text-sm text-slate-300">
-                  批次裁切與輸出，統一尺寸與品質；再加上背景、圓角與留白，快速完成整批圖片整理。
-                </p>
+          <section className="flex flex-col gap-6">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.45)] backdrop-blur">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-black text-white">Cropper</h2>
+                  <p className="mt-2 text-sm text-slate-300">
+                    批次裁切與輸出，統一尺寸與品質；再加上背景、圓角與留白，快速完成整批圖片整理。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6">
+                <Link
+                  to="/cropper"
+                  className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                >
+                  進入 Cropper
+                </Link>
               </div>
             </div>
-            <div className="mt-6">
-              <Link
-                to="/cropper"
-                className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              >
-                進入 Cropper
-              </Link>
+
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.45)] backdrop-blur">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-black text-white">Table Converter</h2>
+                  <p className="mt-2 text-sm text-slate-300">
+                    Excel 或 Word 表格一鍵轉成 HTML、CSV、JSON，保留合併儲存格結構。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6">
+                <Link
+                  to="/table-converter"
+                  className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                >
+                  進入 Table Converter
+                </Link>
+              </div>
             </div>
           </section>
         </main>

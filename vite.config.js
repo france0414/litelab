@@ -5,4 +5,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: '/litelab/',
   plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.js',
+  },
 })
