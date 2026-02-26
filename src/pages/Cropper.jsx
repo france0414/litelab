@@ -17,12 +17,19 @@ const Cropper = () => {
   const [customWidth, setCustomWidth] = useState(1000);
   const [customHeight, setCustomHeight] = useState(750);
   const [quality, setQuality] = useState(0.85); // 壓縮品質
+  const [activeStep, setActiveStep] = useState('crop');
   const [fileSize, setFileSize] = useState(null); // 當前圖片預估體積
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSingleExporting, setIsSingleExporting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState('4:3');
   const [lastFitMode, setLastFitMode] = useState(null);
+  const [ppBackground, setPpBackground] = useState('#ffffff');
+  const [ppPadding, setPpPadding] = useState(0);
+  const [ppBorderColor, setPpBorderColor] = useState('#000000');
+  const [ppBorderWidth, setPpBorderWidth] = useState(0);
+  const [ppOuterRadius, setPpOuterRadius] = useState(0);
+  const [ppInnerRadius, setPpInnerRadius] = useState(0);
 
   // 互動狀態
   const [isDragging, setIsDragging] = useState(false);
@@ -98,7 +105,6 @@ const Cropper = () => {
     canvas.width = customWidth;
     canvas.height = customHeight;
     const ctx = canvas.getContext('2d');
-    const rect = containerRef.current.getBoundingClientRect();
 
     const previewRefSize = 680;
     const scale = customWidth / (aspect >= 1 ? previewRefSize : previewRefSize * aspect);
@@ -518,101 +524,256 @@ const Cropper = () => {
         {/* 右側設定區 */}
         <aside className="w-80 bg-white border-l border-slate-200 flex flex-col shrink-0 shadow-sm">
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
-            <div className="space-y-4">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Maximize size={14} className="text-blue-500" /> 1. 解析度規格
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                {[{ n: '自訂' },
-                  { n: '1:1', w: 1000, h: 1000 },
-                  { n: '4:3', w: 1000, h: 750 },
-                  { n: '16:9', w: 1600, h: 900 }
-                ].map(p => (
+            <div className="space-y-2">
+              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">步驟</div>
+              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                {[
+                  { id: 'crop', label: '裁切' },
+                  { id: 'postprocess', label: '後製' }
+                ].map(step => (
                   <button
-                    key={p.n}
-                    onClick={() => p.n === '自訂' ? setSelectedPreset('custom') : handlePreset(p.n, p.w, p.h)}
-                    className={`py-1.5 rounded-lg border text-sm font-bold ${selectedPreset === p.n || (p.n === '自訂' && selectedPreset === 'custom') ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-100'}`}
+                    key={step.id}
+                    onClick={() => setActiveStep(step.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${activeStep === step.id ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                    {p.n}
+                    {step.label}
                   </button>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <input type="number" value={customWidth} onChange={(e) => handleSizeInput('width', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
-                  <span className="text-sm text-slate-400 block text-center mt-1">寬度</span>
-                </div>
-                <div className="flex-1">
-                  <input type="number" value={customHeight} onChange={(e) => handleSizeInput('height', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
-                  <span className="text-sm text-slate-400 block text-center mt-1">高度</span>
-                </div>
-              </div>
             </div>
-
-            {/* 影像對齊與同步 */}
-            <div className="space-y-3 pt-2 border-t border-slate-100">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Move size={14} className="text-blue-500" /> 2. 影像對齊
-              </h3>
-              <button
-                onClick={() => updateCurrentItem({ crop: { x: 0, y: 0 } })}
-                className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-              >
-                <AlignCenter size={16} /> 垂直水平置中
-              </button>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => fitImageToFrame('width')}
-                  className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-                >
-                  <ArrowLeftRight size={16} /> 寬度貼合
-                </button>
-                <button
-                  onClick={() => fitImageToFrame('height')}
-                  className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-                >
-                  <ArrowUpDown size={16} /> 高度貼合
-                </button>
-              </div>
-              <button
-                onClick={applyCurrentSettingsToAll}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md"
-              >
-                <Copy size={16} /> 同步當前設定至全部
-              </button>
-              <div className="text-sm text-slate-400 font-semibold">
-                解析度與品質為全域設定，已套用全部圖片
-              </div>
-            </div>
-
-            {/* 品質與體積 */}
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Gauge size={14} /> 3. 壓縮品質與體積
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-600">導出品質</span>
-                  <span className="text-sm font-black text-blue-600">{Math.round(quality * 100)}%</span>
-                </div>
-                <input
-                  type="range" min="0.1" max="1.0" step="0.01" value={quality}
-                  onChange={(e) => setQuality(parseFloat(e.target.value))}
-                  className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                />
-
-                <div className="bg-white p-3 rounded-xl flex items-center justify-between border border-slate-200">
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <HardDrive size={14} />
-                    <span className="text-sm font-black uppercase">預估體積</span>
+            {activeStep === 'crop' && (
+              <>
+                <div className="space-y-4">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Maximize size={14} className="text-blue-500" /> 1. 解析度規格
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[{ n: '自訂' },
+                      { n: '1:1', w: 1000, h: 1000 },
+                      { n: '4:3', w: 1000, h: 750 },
+                      { n: '16:9', w: 1600, h: 900 }
+                    ].map(p => (
+                      <button
+                        key={p.n}
+                        onClick={() => p.n === '自訂' ? setSelectedPreset('custom') : handlePreset(p.n, p.w, p.h)}
+                        className={`py-1.5 rounded-lg border text-sm font-bold ${selectedPreset === p.n || (p.n === '自訂' && selectedPreset === 'custom') ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-100'}`}
+                      >
+                        {p.n}
+                      </button>
+                    ))}
                   </div>
-                  <div className="text-right">
-                    <span className="text-lg font-black text-slate-800 font-mono">{fileSize || '--'}</span>
-                    <span className="ml-1 text-sm font-bold text-slate-400">KB</span>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <input type="number" value={customWidth} onChange={(e) => handleSizeInput('width', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
+                      <span className="text-sm text-slate-400 block text-center mt-1">寬度</span>
+                    </div>
+                    <div className="flex-1">
+                      <input type="number" value={customHeight} onChange={(e) => handleSizeInput('height', e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold outline-none" />
+                      <span className="text-sm text-slate-400 block text-center mt-1">高度</span>
+                    </div>
                   </div>
                 </div>
+
+                {/* 影像對齊與同步 */}
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Move size={14} className="text-blue-500" /> 2. 影像對齊
+                  </h3>
+                  <button
+                    onClick={() => updateCurrentItem({ crop: { x: 0, y: 0 } })}
+                    className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                  >
+                    <AlignCenter size={16} /> 垂直水平置中
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => fitImageToFrame('width')}
+                      className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                    >
+                      <ArrowLeftRight size={16} /> 寬度貼合
+                    </button>
+                    <button
+                      onClick={() => fitImageToFrame('height')}
+                      className="w-full py-3 bg-slate-800 text-white hover:bg-blue-600 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                    >
+                      <ArrowUpDown size={16} /> 高度貼合
+                    </button>
+                  </div>
+                  <button
+                    onClick={applyCurrentSettingsToAll}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md"
+                  >
+                    <Copy size={16} /> 同步當前設定至全部
+                  </button>
+                  <div className="text-sm text-slate-400 font-semibold">
+                    解析度與品質為全域設定，已套用全部圖片
+                  </div>
+                </div>
+
+                {/* 品質與體積 */}
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Gauge size={14} /> 3. 壓縮品質與體積
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-slate-600">導出品質</span>
+                      <span className="text-sm font-black text-blue-600">{Math.round(quality * 100)}%</span>
+                    </div>
+                    <input
+                      type="range" min="0.1" max="1.0" step="0.01" value={quality}
+                      onChange={(e) => setQuality(parseFloat(e.target.value))}
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                    />
+
+                    <div className="bg-white p-3 rounded-xl flex items-center justify-between border border-slate-200">
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <HardDrive size={14} />
+                        <span className="text-sm font-black uppercase">預估體積</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-lg font-black text-slate-800 font-mono">{fileSize || '--'}</span>
+                        <span className="ml-1 text-sm font-bold text-slate-400">KB</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {activeStep === 'postprocess' && (
+              <div className="space-y-4">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">後製設定</h3>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-600">背景顏色</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={ppBackground}
+                          onChange={(e) => setPpBackground(e.target.value)}
+                          aria-label="背景色選擇器"
+                          className="h-8 w-10 rounded-lg border border-slate-200 bg-white"
+                        />
+                        <span className="text-xs font-mono text-slate-400">{ppBackground}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {[
+                        { label: '白', value: '#ffffff' },
+                        { label: '黑', value: '#000000' },
+                        { label: '灰', value: '#e5e7eb' }
+                      ].map((swatch) => (
+                        <button
+                          key={swatch.value}
+                          type="button"
+                          onClick={() => setPpBackground(swatch.value)}
+                          aria-label={`背景色 ${swatch.label}`}
+                          className={`h-7 w-7 rounded-lg border ${ppBackground === swatch.value ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
+                          title={swatch.label}
+                          style={{ backgroundColor: swatch.value }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-600">內距</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="200"
+                        value={ppPadding}
+                        onChange={(e) => setPpPadding(Math.min(200, Math.max(0, parseInt(e.target.value) || 0)))}
+                        aria-label="內距"
+                        className="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
+                      />
+                    </div>
+                    <input
+                      type="range" min="0" max="200" step="1" value={ppPadding}
+                      onChange={(e) => setPpPadding(parseInt(e.target.value) || 0)}
+                      aria-label="內距滑桿"
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-600">邊框</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={ppBorderColor}
+                          onChange={(e) => setPpBorderColor(e.target.value)}
+                          aria-label="邊框色選擇器"
+                          className="h-8 w-10 rounded-lg border border-slate-200 bg-white"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="60"
+                          value={ppBorderWidth}
+                          onChange={(e) => setPpBorderWidth(Math.min(60, Math.max(0, parseInt(e.target.value) || 0)))}
+                          aria-label="邊框寬度"
+                          className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
+                        />
+                      </div>
+                    </div>
+                    <input
+                      type="range" min="0" max="60" step="1" value={ppBorderWidth}
+                      onChange={(e) => setPpBorderWidth(parseInt(e.target.value) || 0)}
+                      aria-label="邊框寬度滑桿"
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-600">外圓角</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="200"
+                        value={ppOuterRadius}
+                        onChange={(e) => setPpOuterRadius(Math.min(200, Math.max(0, parseInt(e.target.value) || 0)))}
+                        aria-label="外圓角"
+                        className="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
+                      />
+                    </div>
+                    <input
+                      type="range" min="0" max="200" step="1" value={ppOuterRadius}
+                      onChange={(e) => setPpOuterRadius(parseInt(e.target.value) || 0)}
+                      aria-label="外圓角滑桿"
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-600">內圓角</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="200"
+                        value={ppInnerRadius}
+                        onChange={(e) => setPpInnerRadius(Math.min(200, Math.max(0, parseInt(e.target.value) || 0)))}
+                        aria-label="內圓角"
+                        className="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
+                      />
+                    </div>
+                    <input
+                      type="range" min="0" max="200" step="1" value={ppInnerRadius}
+                      onChange={(e) => setPpInnerRadius(parseInt(e.target.value) || 0)}
+                      aria-label="內圓角滑桿"
+                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </aside>
       </div>
