@@ -6,6 +6,15 @@ import {
   HardDrive, Trash2, ChevronLeft, ChevronRight, Copy, FileArchive
 } from 'lucide-react';
 
+const DEFAULT_POSTPROCESS = {
+  background: '#ffffff',
+  padding: 0,
+  borderColor: '#000000',
+  borderWidth: 0,
+  outerRadius: 0,
+  innerRadius: 0
+};
+
 const Cropper = () => {
   const MAX_IMAGES = 30;
   // 核心狀態 (多圖隊列)
@@ -17,6 +26,7 @@ const Cropper = () => {
   const [customWidth, setCustomWidth] = useState(1000);
   const [customHeight, setCustomHeight] = useState(750);
   const [quality, setQuality] = useState(0.85); // 壓縮品質
+  const [outputFormat, setOutputFormat] = useState('jpeg');
   const [activeStep, setActiveStep] = useState('crop');
   const [fileSize, setFileSize] = useState(null); // 當前圖片預估體積
   const [isProcessing, setIsProcessing] = useState(false);
@@ -24,12 +34,7 @@ const Cropper = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState('4:3');
   const [lastFitMode, setLastFitMode] = useState(null);
-  const [ppBackground, setPpBackground] = useState('#ffffff');
-  const [ppPadding, setPpPadding] = useState(0);
-  const [ppBorderColor, setPpBorderColor] = useState('#000000');
-  const [ppBorderWidth, setPpBorderWidth] = useState(0);
-  const [ppOuterRadius, setPpOuterRadius] = useState(0);
-  const [ppInnerRadius, setPpInnerRadius] = useState(0);
+  const [ppPreviewUrl, setPpPreviewUrl] = useState(null);
 
   // 互動狀態
   const [isDragging, setIsDragging] = useState(false);
@@ -39,6 +44,10 @@ const Cropper = () => {
   const imageRef = useRef(null);
 
   const currentItem = imageList[currentIndex] || null;
+  const isPostprocess = activeStep === 'postprocess';
+  const currentPostprocess = currentItem?.postprocess || DEFAULT_POSTPROCESS;
+  const outputMime = outputFormat === 'png' ? 'image/png' : 'image/jpeg';
+  const outputExt = outputFormat === 'png' ? 'png' : 'jpg';
 
   // 動態載入 JSZip
   const loadJSZip = () => {
@@ -79,7 +88,9 @@ const Cropper = () => {
               crop: { x: 0, y: 0 },
               zoom: 1,
               width: img.naturalWidth,
-              height: img.naturalHeight
+              height: img.naturalHeight,
+              postprocessMode: 'fromCrop',
+              postprocess: { ...DEFAULT_POSTPROCESS }
             };
             setImageList(prev => {
               const updated = [...prev, newItem];
@@ -114,16 +125,18 @@ const Cropper = () => {
     const dx = (customWidth / 2) + (currentItem.crop.x * scale) - (dw / 2);
     const dy = (customHeight / 2) + (currentItem.crop.y * scale) - (dh / 2);
 
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (outputFormat === 'jpeg') {
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.drawImage(img, dx, dy, dw, dh);
 
     canvas.toBlob((blob) => {
       if (blob) {
         setFileSize((blob.size / 1024).toFixed(1));
       }
-    }, 'image/jpeg', quality);
-  }, [currentItem, aspect, customWidth, customHeight, quality]);
+    }, outputMime, outputFormat === 'jpeg' ? quality : undefined);
+  }, [currentItem, aspect, customWidth, customHeight, quality, outputFormat, outputMime]);
 
   useEffect(() => {
     const timer = setTimeout(estimateSize, 500);
@@ -224,7 +237,42 @@ const Cropper = () => {
   };
 
   // 5. 渲染與導出
-  const renderToCanvasForZip = (item, targetWidth, targetHeight, targetQuality) => {
+  const drawRoundedRect = (ctx, x, y, width, height, radius) => {
+    const safeRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + safeRadius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, safeRadius);
+    ctx.arcTo(x + width, y + height, x, y + height, safeRadius);
+    ctx.arcTo(x, y + height, x, y, safeRadius);
+    ctx.arcTo(x, y, x + width, y, safeRadius);
+    ctx.closePath();
+  };
+
+  const getPostprocessTargetSize = (item) => {
+    if (!item) {
+      return { width: customWidth, height: customHeight };
+    }
+    if (item.postprocessMode === 'fromOriginal') {
+      return {
+        width: item.width || customWidth,
+        height: item.height || customHeight
+      };
+    }
+    return { width: customWidth, height: customHeight };
+  };
+
+  const getPostprocessPreviewSize = (item) => {
+    const frameRect = containerRef.current?.getBoundingClientRect();
+    if (frameRect?.width && frameRect?.height) {
+      return {
+        width: Math.max(1, Math.round(frameRect.width)),
+        height: Math.max(1, Math.round(frameRect.height))
+      };
+    }
+    return getPostprocessTargetSize(item);
+  };
+
+  const renderPostprocessToBase64 = (item, targetWidth, targetHeight, targetQuality, format) => {
     return new Promise((resolve) => {
       const canvas = document.createElement('canvas');
       const img = new Image();
@@ -232,24 +280,95 @@ const Cropper = () => {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
-        const previewRefSize = 680;
-        const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+        const mime = format === 'png' ? 'image/png' : 'image/jpeg';
 
+        const postprocess = item?.postprocess || DEFAULT_POSTPROCESS;
+        const outerRadius = Math.min(postprocess.outerRadius, Math.min(targetWidth, targetHeight) / 2);
+        const background = postprocess.background;
+        const isTransparentBg = background === 'transparent';
+        const shouldFillBg = !isTransparentBg || format === 'jpeg';
+        const hasOuterClip = outerRadius > 0;
+
+        if (hasOuterClip) {
+          ctx.save();
+          drawRoundedRect(ctx, 0, 0, targetWidth, targetHeight, outerRadius);
+          ctx.clip();
+        }
+
+        if (shouldFillBg) {
+          ctx.fillStyle = isTransparentBg ? '#ffffff' : background;
+          drawRoundedRect(ctx, 0, 0, targetWidth, targetHeight, outerRadius);
+          ctx.fill();
+        }
+
+        const innerInset = postprocess.padding + postprocess.borderWidth;
+        const innerWidth = targetWidth - innerInset * 2;
+        const innerHeight = targetHeight - innerInset * 2;
+        if (innerWidth <= 0 || innerHeight <= 0) {
+          if (hasOuterClip) ctx.restore();
+          if (postprocess.borderWidth > 0) {
+            const halfBorder = postprocess.borderWidth / 2;
+            ctx.strokeStyle = postprocess.borderColor;
+            ctx.lineWidth = postprocess.borderWidth;
+            drawRoundedRect(
+              ctx,
+              halfBorder,
+              halfBorder,
+              targetWidth - postprocess.borderWidth,
+              targetHeight - postprocess.borderWidth,
+              Math.max(0, outerRadius - halfBorder)
+            );
+            ctx.stroke();
+          }
+          const dataUrl = format === 'png'
+            ? canvas.toDataURL(mime)
+            : canvas.toDataURL(mime, targetQuality);
+          resolve(dataUrl.split(',')[1]);
+          return;
+        }
+
+        const innerRadius = Math.min(postprocess.innerRadius, Math.min(innerWidth, innerHeight) / 2);
+        const previewRefSize = 680;
+        const aspectRatio = innerWidth / innerHeight;
+        const scale = innerWidth / (aspectRatio >= 1 ? previewRefSize : previewRefSize * aspectRatio);
         const dw = img.naturalWidth * item.zoom * scale;
         const dh = img.naturalHeight * item.zoom * scale;
-        const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
-        const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
+        const dx = innerInset + (innerWidth / 2) + (item.crop.x * scale) - (dw / 2);
+        const dy = innerInset + (innerHeight / 2) + (item.crop.y * scale) - (dh / 2);
 
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        drawRoundedRect(ctx, innerInset, innerInset, innerWidth, innerHeight, innerRadius);
+        ctx.clip();
         ctx.drawImage(img, dx, dy, dw, dh);
-        resolve(canvas.toDataURL('image/jpeg', targetQuality).split(',')[1]);
+        ctx.restore();
+
+        if (hasOuterClip) ctx.restore();
+
+        if (postprocess.borderWidth > 0) {
+          const halfBorder = postprocess.borderWidth / 2;
+          ctx.strokeStyle = postprocess.borderColor;
+          ctx.lineWidth = postprocess.borderWidth;
+          drawRoundedRect(
+            ctx,
+            halfBorder,
+            halfBorder,
+            targetWidth - postprocess.borderWidth,
+            targetHeight - postprocess.borderWidth,
+            Math.max(0, outerRadius - halfBorder)
+          );
+          ctx.stroke();
+        }
+
+        const dataUrl = format === 'png'
+          ? canvas.toDataURL(mime)
+          : canvas.toDataURL(mime, targetQuality);
+        resolve(dataUrl.split(',')[1]);
       };
       img.src = item.src;
     });
   };
 
-  const renderToCanvasDataUrl = (item, targetWidth, targetHeight, targetQuality) => {
+  const renderPostprocessToDataUrl = (item, targetWidth, targetHeight, targetQuality, format) => {
     return new Promise((resolve) => {
       const canvas = document.createElement('canvas');
       const img = new Image();
@@ -257,6 +376,104 @@ const Cropper = () => {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
+        const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+
+        const postprocess = item?.postprocess || DEFAULT_POSTPROCESS;
+        const outerRadius = Math.min(postprocess.outerRadius, Math.min(targetWidth, targetHeight) / 2);
+        const background = postprocess.background;
+        const isTransparentBg = background === 'transparent';
+        const shouldFillBg = !isTransparentBg || format === 'jpeg';
+        const hasOuterClip = outerRadius > 0;
+
+        if (hasOuterClip) {
+          ctx.save();
+          drawRoundedRect(ctx, 0, 0, targetWidth, targetHeight, outerRadius);
+          ctx.clip();
+        }
+
+        if (shouldFillBg) {
+          ctx.fillStyle = isTransparentBg ? '#ffffff' : background;
+          drawRoundedRect(ctx, 0, 0, targetWidth, targetHeight, outerRadius);
+          ctx.fill();
+        }
+
+        const innerInset = postprocess.padding + postprocess.borderWidth;
+        const innerWidth = targetWidth - innerInset * 2;
+        const innerHeight = targetHeight - innerInset * 2;
+        if (innerWidth <= 0 || innerHeight <= 0) {
+          if (hasOuterClip) ctx.restore();
+          if (postprocess.borderWidth > 0) {
+            const halfBorder = postprocess.borderWidth / 2;
+            ctx.strokeStyle = postprocess.borderColor;
+            ctx.lineWidth = postprocess.borderWidth;
+            drawRoundedRect(
+              ctx,
+              halfBorder,
+              halfBorder,
+              targetWidth - postprocess.borderWidth,
+              targetHeight - postprocess.borderWidth,
+              Math.max(0, outerRadius - halfBorder)
+            );
+            ctx.stroke();
+          }
+          resolve(format === 'png'
+            ? canvas.toDataURL(mime)
+            : canvas.toDataURL(mime, targetQuality));
+          return;
+        }
+
+        const innerRadius = Math.min(postprocess.innerRadius, Math.min(innerWidth, innerHeight) / 2);
+        const previewRefSize = 680;
+        const aspectRatio = innerWidth / innerHeight;
+        const scale = innerWidth / (aspectRatio >= 1 ? previewRefSize : previewRefSize * aspectRatio);
+        const dw = img.naturalWidth * item.zoom * scale;
+        const dh = img.naturalHeight * item.zoom * scale;
+        const dx = innerInset + (innerWidth / 2) + (item.crop.x * scale) - (dw / 2);
+        const dy = innerInset + (innerHeight / 2) + (item.crop.y * scale) - (dh / 2);
+
+        ctx.save();
+        drawRoundedRect(ctx, innerInset, innerInset, innerWidth, innerHeight, innerRadius);
+        ctx.clip();
+        ctx.drawImage(img, dx, dy, dw, dh);
+        ctx.restore();
+
+        if (hasOuterClip) ctx.restore();
+
+        if (postprocess.borderWidth > 0) {
+          const halfBorder = postprocess.borderWidth / 2;
+          ctx.strokeStyle = postprocess.borderColor;
+          ctx.lineWidth = postprocess.borderWidth;
+          drawRoundedRect(
+            ctx,
+            halfBorder,
+            halfBorder,
+            targetWidth - postprocess.borderWidth,
+            targetHeight - postprocess.borderWidth,
+            Math.max(0, outerRadius - halfBorder)
+          );
+          ctx.stroke();
+        }
+
+        resolve(format === 'png'
+          ? canvas.toDataURL(mime)
+          : canvas.toDataURL(mime, targetQuality));
+      };
+      img.src = item.src;
+    });
+  };
+
+  const renderToCanvasForZip = (item, targetWidth, targetHeight, targetQuality, format) => {
+    if (isPostprocess) {
+      return renderPostprocessToBase64(item, targetWidth, targetHeight, targetQuality, format);
+    }
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        const mime = format === 'png' ? 'image/png' : 'image/jpeg';
         const previewRefSize = 680;
         const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
 
@@ -265,13 +482,110 @@ const Cropper = () => {
         const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
         const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
 
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (format === 'jpeg') {
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
         ctx.drawImage(img, dx, dy, dw, dh);
-        resolve(canvas.toDataURL('image/jpeg', targetQuality));
+        const dataUrl = format === 'png'
+          ? canvas.toDataURL(mime)
+          : canvas.toDataURL(mime, targetQuality);
+        resolve(dataUrl.split(',')[1]);
       };
       img.src = item.src;
     });
+  };
+
+  const renderToCanvasDataUrl = (item, targetWidth, targetHeight, targetQuality, format) => {
+    if (isPostprocess) {
+      return renderPostprocessToDataUrl(item, targetWidth, targetHeight, targetQuality, format);
+    }
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+        const previewRefSize = 680;
+        const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+
+        const dw = img.naturalWidth * item.zoom * scale;
+        const dh = img.naturalHeight * item.zoom * scale;
+        const dx = (targetWidth / 2) + (item.crop.x * scale) - (dw / 2);
+        const dy = (targetHeight / 2) + (item.crop.y * scale) - (dh / 2);
+
+        if (format === 'jpeg') {
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        ctx.drawImage(img, dx, dy, dw, dh);
+        resolve(format === 'png'
+          ? canvas.toDataURL(mime)
+          : canvas.toDataURL(mime, targetQuality));
+      };
+      img.src = item.src;
+    });
+  };
+
+  useEffect(() => {
+    if (!currentItem || !isPostprocess) {
+      setPpPreviewUrl(null);
+      return;
+    }
+
+    const { width: targetWidth, height: targetHeight } = getPostprocessPreviewSize(currentItem);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      renderPostprocessToDataUrl(currentItem, targetWidth, targetHeight, Math.min(0.92, quality), outputFormat)
+        .then((dataUrl) => {
+          if (!cancelled) setPpPreviewUrl(dataUrl);
+        })
+        .catch(() => {
+          if (!cancelled) setPpPreviewUrl(null);
+        });
+    }, 150);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    currentItem,
+    customWidth,
+    customHeight,
+    quality,
+    currentItem?.width,
+    currentItem?.height,
+    currentItem?.postprocessMode,
+    currentPostprocess.background,
+    currentPostprocess.padding,
+    currentPostprocess.borderColor,
+    currentPostprocess.borderWidth,
+    currentPostprocess.outerRadius,
+    currentPostprocess.innerRadius,
+    isPostprocess,
+    outputFormat
+  ]);
+
+  const updateCurrentPostprocess = (updates) => {
+    if (!currentItem) return;
+    updateCurrentItem({
+      postprocess: {
+        ...currentPostprocess,
+        ...updates
+      }
+    });
+  };
+
+  const applyCurrentPostprocessToAll = () => {
+    if (!currentItem) return;
+    const postprocess = currentItem.postprocess || DEFAULT_POSTPROCESS;
+    setImageList(prev => prev.map(item => ({
+      ...item,
+      postprocess: { ...postprocess }
+    })));
   };
 
   const batchDownloadZip = async () => {
@@ -282,8 +596,11 @@ const Cropper = () => {
       const zip = new JSZip();
       for (let i = 0; i < imageList.length; i++) {
         const item = imageList[i];
-        const base64Data = await renderToCanvasForZip(item, customWidth, customHeight, quality);
-        zip.file(`${item.name || `img_${i + 1}`}.jpg`, base64Data, { base64: true });
+        const { width: targetWidth, height: targetHeight } = isPostprocess
+          ? getPostprocessTargetSize(item)
+          : { width: customWidth, height: customHeight };
+        const base64Data = await renderToCanvasForZip(item, targetWidth, targetHeight, quality, outputFormat);
+        zip.file(`${item.name || `img_${i + 1}`}.${outputExt}`, base64Data, { base64: true });
       }
       const content = await zip.generateAsync({ type: "blob" });
       const link = document.createElement('a');
@@ -297,25 +614,29 @@ const Cropper = () => {
     if (!currentItem) return;
     setIsSingleExporting(true);
     try {
-      const dataUrl = await renderToCanvasDataUrl(currentItem, customWidth, customHeight, quality);
+      const { width: targetWidth, height: targetHeight } = isPostprocess
+        ? getPostprocessTargetSize(currentItem)
+        : { width: customWidth, height: customHeight };
+      const dataUrl = await renderToCanvasDataUrl(currentItem, targetWidth, targetHeight, quality, outputFormat);
       const now = new Date();
       const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
       const baseName = currentItem.name || `img_${currentIndex + 1}`;
+      const outputLabel = isPostprocess ? 'postprocess' : 'crop';
       const link = document.createElement('a');
       link.href = dataUrl;
-      link.download = `${baseName}_crop_${stamp}.jpg`;
+      link.download = `${baseName}_${outputLabel}_${stamp}.${outputExt}`;
       link.click();
     } catch (e) { console.error(e); } finally { setIsSingleExporting(false); }
   };
 
   // 互動事件
   const onMouseDown = (e) => {
-    if (!currentItem) return;
+    if (!currentItem || isPostprocess) return;
     setIsDragging(true);
     setDragStart({ x: e.clientX - currentItem.crop.x, y: e.clientY - currentItem.crop.y });
   };
   const onMouseMove = (e) => {
-    if (isDragging) {
+    if (isDragging && !isPostprocess) {
       setLastFitMode(null);
       updateCurrentItem({ crop: { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y } });
     }
@@ -423,13 +744,14 @@ const Cropper = () => {
               </div>
             ) : (
               <div
-                className="relative w-full h-full flex items-center justify-center overflow-hidden cursor-move touch-none bg-[#0F172A] rounded-[3rem] shadow-2xl border-[12px] border-white"
+                className={`relative w-full h-full flex items-center justify-center overflow-hidden touch-none bg-[#0F172A] rounded-[3rem] shadow-2xl border-[12px] border-white ${isPostprocess ? 'cursor-default' : 'cursor-move'}`}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
                 onMouseUp={() => setIsDragging(false)}
                 onMouseLeave={() => setIsDragging(false)}
                 onWheel={(e) => {
                   e.preventDefault();
+                  if (isPostprocess) return;
                   const delta = e.deltaY * -0.0012;
                   setLastFitMode(null);
                   updateCurrentItem({ zoom: Math.min(Math.max(currentItem.zoom + delta, 0.01), 10) });
@@ -437,29 +759,40 @@ const Cropper = () => {
               >
                 <div
                   ref={containerRef}
-                  className="relative z-20 pointer-events-none border border-white/30 shadow-[0_0_0_9999px_rgba(15,23,42,0.9)]"
+                  className={`relative z-20 pointer-events-none border border-white/30 ${isPostprocess ? '' : 'shadow-[0_0_0_9999px_rgba(15,23,42,0.9)]'}`}
                   style={{
                     aspectRatio: aspect,
                     width: aspect >= 1 ? 'min(92%, 680px)' : 'auto',
                     height: aspect < 1 ? 'min(92%, 680px)' : 'auto',
                   }}
                 >
-                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20">
-                    {[...Array(9)].map((_, i) => <div key={i} className="border-[0.5px] border-white/30"></div>)}
-                  </div>
+                  {!isPostprocess && (
+                    <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20">
+                      {[...Array(9)].map((_, i) => <div key={i} className="border-[0.5px] border-white/30"></div>)}
+                    </div>
+                  )}
                 </div>
 
-                <img
-                  ref={imageRef}
-                  src={currentItem.src}
-                  alt="Target"
-                  draggable="false"
-                  className="crop-image absolute max-w-none select-none"
-                  style={{
-                    transform: `translate(${currentItem.crop.x}px, ${currentItem.crop.y}px) scale(${currentItem.zoom})`,
-                    transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)'
-                  }}
-                />
+                {isPostprocess ? (
+                  <img
+                    src={ppPreviewUrl || currentItem.src}
+                    alt="Postprocess Preview"
+                    draggable="false"
+                    className="absolute max-h-full max-w-full object-contain select-none"
+                  />
+                ) : (
+                  <img
+                    ref={imageRef}
+                    src={currentItem.src}
+                    alt="Target"
+                    draggable="false"
+                    className="crop-image absolute max-w-none select-none"
+                    style={{
+                      transform: `translate(${currentItem.crop.x}px, ${currentItem.crop.y}px) scale(${currentItem.zoom})`,
+                      transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)'
+                    }}
+                  />
+                )}
               </div>
             )}
 
@@ -473,32 +806,34 @@ const Cropper = () => {
 
           {/* 底部微調列 */}
           <div className="bg-white border-t border-slate-200 p-6 flex items-center justify-between shrink-0 shadow-2xl">
-            <div className="flex-1 max-w-lg space-y-1">
-              <div className="flex justify-between items-center text-sm font-black text-slate-400 uppercase tracking-tighter">
-                <span className="flex items-center gap-1 italic">當前縮放百分比</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    value={currentItem ? Math.round(currentItem.zoom * 100) : 100}
-                    onChange={(e) => {
-                      setLastFitMode(null);
-                      updateCurrentItem({ zoom: (parseInt(e.target.value) || 1) / 100 });
-                    }}
-                    className="w-14 text-blue-600 bg-blue-50 rounded-md text-center font-black outline-none border border-blue-100"
-                  />
-                  <span>%</span>
+            {!isPostprocess && (
+              <div className="flex-1 max-w-lg space-y-1">
+                <div className="flex justify-between items-center text-sm font-black text-slate-400 uppercase tracking-tighter">
+                  <span className="flex items-center gap-1 italic">當前縮放百分比</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={currentItem ? Math.round(currentItem.zoom * 100) : 100}
+                      onChange={(e) => {
+                        setLastFitMode(null);
+                        updateCurrentItem({ zoom: (parseInt(e.target.value) || 1) / 100 });
+                      }}
+                      className="w-14 text-blue-600 bg-blue-50 rounded-md text-center font-black outline-none border border-blue-100"
+                    />
+                    <span>%</span>
+                  </div>
                 </div>
+                <input
+                  type="range" min="0.01" max="5" step="0.01"
+                  value={currentItem ? currentItem.zoom : 1}
+                  onChange={(e) => {
+                    setLastFitMode(null);
+                    updateCurrentItem({ zoom: parseFloat(e.target.value) });
+                  }}
+                  className="w-full accent-blue-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+                />
               </div>
-              <input
-                type="range" min="0.01" max="5" step="0.01"
-                value={currentItem ? currentItem.zoom : 1}
-                onChange={(e) => {
-                  setLastFitMode(null);
-                  updateCurrentItem({ zoom: parseFloat(e.target.value) });
-                }}
-                className="w-full accent-blue-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
+            )}
 
             <div className="flex items-center gap-4 ml-8">
               <button
@@ -540,6 +875,29 @@ const Cropper = () => {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs font-black text-slate-400 uppercase tracking-widest">輸出格式</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'jpeg', label: 'JPG' },
+                  { id: 'png', label: 'PNG' }
+                ].map((format) => (
+                  <button
+                    key={format.id}
+                    type="button"
+                    onClick={() => setOutputFormat(format.id)}
+                    className={`py-2 rounded-lg border text-sm font-bold ${outputFormat === format.id ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-100 text-slate-600'}`}
+                  >
+                    {format.label}
+                  </button>
+                ))}
+              </div>
+              {outputFormat === 'png' && (
+                <div className="text-xs font-semibold text-slate-400">
+                  PNG 會保留透明，品質滑桿不影響 PNG
+                </div>
+              )}
             </div>
             {activeStep === 'crop' && (
               <>
@@ -638,6 +996,7 @@ const Cropper = () => {
                     </div>
                   </div>
                 </div>
+
               </>
             )}
 
@@ -652,28 +1011,34 @@ const Cropper = () => {
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
-                          value={ppBackground}
-                          onChange={(e) => setPpBackground(e.target.value)}
+                          value={currentPostprocess.background === 'transparent' ? '#ffffff' : currentPostprocess.background}
+                          onChange={(e) => updateCurrentPostprocess({ background: e.target.value })}
                           aria-label="背景色選擇器"
                           className="h-8 w-10 rounded-lg border border-slate-200 bg-white"
                         />
-                        <span className="text-xs font-mono text-slate-400">{ppBackground}</span>
+                        <span className="text-xs font-mono text-slate-400">{currentPostprocess.background === 'transparent' ? 'transparent' : currentPostprocess.background}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {[
                         { label: '白', value: '#ffffff' },
                         { label: '黑', value: '#000000' },
-                        { label: '灰', value: '#e5e7eb' }
+                        { label: '灰', value: '#e5e7eb' },
+                        { label: '透明', value: 'transparent', isTransparent: true }
                       ].map((swatch) => (
                         <button
                           key={swatch.value}
                           type="button"
-                          onClick={() => setPpBackground(swatch.value)}
+                          onClick={() => updateCurrentPostprocess({ background: swatch.value })}
                           aria-label={`背景色 ${swatch.label}`}
-                          className={`h-7 w-7 rounded-lg border ${ppBackground === swatch.value ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
+                          className={`h-7 w-7 rounded-lg border ${currentPostprocess.background === swatch.value ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
                           title={swatch.label}
-                          style={{ backgroundColor: swatch.value }}
+                          style={swatch.isTransparent ? {
+                            backgroundColor: 'transparent',
+                            backgroundImage: 'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+                            backgroundSize: '6px 6px',
+                            backgroundPosition: '0 0, 0 3px, 3px -3px, -3px 0px'
+                          } : { backgroundColor: swatch.value }}
                         />
                       ))}
                     </div>
@@ -686,15 +1051,15 @@ const Cropper = () => {
                         type="number"
                         min="0"
                         max="200"
-                        value={ppPadding}
-                        onChange={(e) => setPpPadding(Math.min(200, Math.max(0, parseInt(e.target.value) || 0)))}
+                        value={currentPostprocess.padding}
+                        onChange={(e) => updateCurrentPostprocess({ padding: Math.min(200, Math.max(0, parseInt(e.target.value) || 0)) })}
                         aria-label="內距"
                         className="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
                       />
                     </div>
                     <input
-                      type="range" min="0" max="200" step="1" value={ppPadding}
-                      onChange={(e) => setPpPadding(parseInt(e.target.value) || 0)}
+                      type="range" min="0" max="200" step="1" value={currentPostprocess.padding}
+                      onChange={(e) => updateCurrentPostprocess({ padding: parseInt(e.target.value) || 0 })}
                       aria-label="內距滑桿"
                       className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                     />
@@ -706,8 +1071,8 @@ const Cropper = () => {
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
-                          value={ppBorderColor}
-                          onChange={(e) => setPpBorderColor(e.target.value)}
+                          value={currentPostprocess.borderColor}
+                          onChange={(e) => updateCurrentPostprocess({ borderColor: e.target.value })}
                           aria-label="邊框色選擇器"
                           className="h-8 w-10 rounded-lg border border-slate-200 bg-white"
                         />
@@ -715,16 +1080,16 @@ const Cropper = () => {
                           type="number"
                           min="0"
                           max="60"
-                          value={ppBorderWidth}
-                          onChange={(e) => setPpBorderWidth(Math.min(60, Math.max(0, parseInt(e.target.value) || 0)))}
+                          value={currentPostprocess.borderWidth}
+                          onChange={(e) => updateCurrentPostprocess({ borderWidth: Math.min(60, Math.max(0, parseInt(e.target.value) || 0)) })}
                           aria-label="邊框寬度"
                           className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
                         />
                       </div>
                     </div>
                     <input
-                      type="range" min="0" max="60" step="1" value={ppBorderWidth}
-                      onChange={(e) => setPpBorderWidth(parseInt(e.target.value) || 0)}
+                      type="range" min="0" max="60" step="1" value={currentPostprocess.borderWidth}
+                      onChange={(e) => updateCurrentPostprocess({ borderWidth: parseInt(e.target.value) || 0 })}
                       aria-label="邊框寬度滑桿"
                       className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                     />
@@ -737,15 +1102,15 @@ const Cropper = () => {
                         type="number"
                         min="0"
                         max="200"
-                        value={ppOuterRadius}
-                        onChange={(e) => setPpOuterRadius(Math.min(200, Math.max(0, parseInt(e.target.value) || 0)))}
+                        value={currentPostprocess.outerRadius}
+                        onChange={(e) => updateCurrentPostprocess({ outerRadius: Math.min(200, Math.max(0, parseInt(e.target.value) || 0)) })}
                         aria-label="外圓角"
                         className="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
                       />
                     </div>
                     <input
-                      type="range" min="0" max="200" step="1" value={ppOuterRadius}
-                      onChange={(e) => setPpOuterRadius(parseInt(e.target.value) || 0)}
+                      type="range" min="0" max="200" step="1" value={currentPostprocess.outerRadius}
+                      onChange={(e) => updateCurrentPostprocess({ outerRadius: parseInt(e.target.value) || 0 })}
                       aria-label="外圓角滑桿"
                       className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                     />
@@ -758,20 +1123,26 @@ const Cropper = () => {
                         type="number"
                         min="0"
                         max="200"
-                        value={ppInnerRadius}
-                        onChange={(e) => setPpInnerRadius(Math.min(200, Math.max(0, parseInt(e.target.value) || 0)))}
+                        value={currentPostprocess.innerRadius}
+                        onChange={(e) => updateCurrentPostprocess({ innerRadius: Math.min(200, Math.max(0, parseInt(e.target.value) || 0)) })}
                         aria-label="內圓角"
                         className="w-20 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-right"
                       />
                     </div>
                     <input
-                      type="range" min="0" max="200" step="1" value={ppInnerRadius}
-                      onChange={(e) => setPpInnerRadius(parseInt(e.target.value) || 0)}
+                      type="range" min="0" max="200" step="1" value={currentPostprocess.innerRadius}
+                      onChange={(e) => updateCurrentPostprocess({ innerRadius: parseInt(e.target.value) || 0 })}
                       aria-label="內圓角滑桿"
                       className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                     />
                   </div>
                 </div>
+                <button
+                  onClick={applyCurrentPostprocessToAll}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md"
+                >
+                  <Copy size={16} /> 套用目前後製設定到全部
+                </button>
               </div>
             )}
           </div>

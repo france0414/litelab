@@ -261,13 +261,14 @@ export const toHtml = (table, options = {}) => {
       })
       .join('');
 
-  const classAttr = options.className ? ` class="${options.className}"` : '';
+  const baseClassName = options.className ? `table ${options.className}` : 'table';
+  const classAttr = ` class="${baseClassName}"`;
   let html = `<table${classAttr}>`;
   if (headerRows > 0) {
     html += `<thead>${renderRows(0, headerRows, true)}</thead>`;
   }
   html += `<tbody>${renderRows(headerRows, matrix.length, false)}</tbody></table>`;
-  return html;
+  return `<div class="s_table_of_feature table-responsive" data-vcss="001" data-snippet="s_table_of_feature" data-name="Table of Feature" data-tablefeature-template="flexible_content">${html}</div>`;
 };
 
 export const mergeCells = (table, { r1, c1, r2, c2 }) => {

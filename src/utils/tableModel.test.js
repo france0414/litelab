@@ -64,7 +64,7 @@ describe('tableModel', () => {
     };
 
     expect(toHtml(table)).toBe(
-      '<table><tbody><tr><td rowspan="2" colspan="2">A</td></tr><tr></tr></tbody></table>',
+      '<div class="s_table_of_feature table-responsive" data-vcss="001" data-snippet="s_table_of_feature" data-name="Table of Feature" data-tablefeature-template="flexible_content"><table class="table"><tbody><tr><td rowspan="2" colspan="2">A</td></tr><tr></tr></tbody></table></div>',
     );
   });
 

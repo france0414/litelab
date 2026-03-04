@@ -21,6 +21,8 @@ const MergeEditor = ({
   onClearHeader,
   canUndo,
   canRedo,
+  activeIndex,
+  totalTables,
 }) => {
   const matrix = useMemo(() => toMatrix(table), [table]);
   const [anchor, setAnchor] = useState(null);
@@ -170,6 +172,11 @@ const MergeEditor = ({
         <div>
           <h2 className="text-lg font-black text-white">Merge Editor</h2>
           <p className="mt-1 text-xs text-slate-300">點兩次建立範圍，Shift 可累加多區塊。</p>
+          {typeof activeIndex === 'number' && typeof totalTables === 'number' && totalTables > 0 ? (
+            <p className="mt-1 text-xs font-semibold text-slate-400">
+              目前表格 {activeIndex + 1} / {totalTables}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
