@@ -66,4 +66,47 @@ describe('tableParser', () => {
     expect(result.tables[0].cells).toContainEqual(expect.objectContaining({ r: 0, c: 0, value: 'A' }));
     expect(result.tables[0].cells).toContainEqual(expect.objectContaining({ r: 0, c: 1, value: 'B' }));
   });
+
+  it('maps docx table header rows to header ranges', async () => {
+    const doc = new Document({
+      sections: [
+        {
+          children: [
+            new Table({
+              rows: [
+                new TableRow({
+                  tableHeader: true,
+                  children: [
+                    new TableCell({ children: [new Paragraph('H1')] }),
+                    new TableCell({ children: [new Paragraph('H2')] }),
+                  ],
+                }),
+                new TableRow({
+                  tableHeader: true,
+                  children: [
+                    new TableCell({ children: [new Paragraph('H3')] }),
+                    new TableCell({ children: [new Paragraph('H4')] }),
+                  ],
+                }),
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph('A')] }),
+                    new TableCell({ children: [new Paragraph('B')] }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    const result = await parseDocxArrayBuffer(buffer);
+
+    expect(result.tables[0].headers).toEqual([
+      { r: 0, c: 0, rowspan: 1, colspan: 2 },
+      { r: 1, c: 0, rowspan: 1, colspan: 2 },
+    ]);
+  });
 });

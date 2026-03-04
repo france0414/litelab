@@ -211,6 +211,8 @@ const parseDocxXml = (xmlString) => {
   return tables.map((tbl, tableIndex) => {
     const cells = [];
     const merges = [];
+    const headerRows = new Set();
+    const rowColCounts = [];
     const rows = findChildren(tbl, 'w', 'tr');
 
     // Track vMerge state: key = colIndex, value = { startRow, endRow, colIndex, colspan }
@@ -240,6 +242,11 @@ const parseDocxXml = (xmlString) => {
     };
 
     rows.forEach((tr, r) => {
+      const trPr = findChild(tr, 'w', 'trPr');
+      const headerFlag = findChild(trPr, 'w', 'tblHeader');
+      if (headerFlag) {
+        headerRows.add(r);
+      }
       const tcs = findChildren(tr, 'w', 'tc');
       let colIndex = 0;
 
@@ -290,6 +297,8 @@ const parseDocxXml = (xmlString) => {
 
         colIndex += parsed.colspan;
       });
+
+      rowColCounts[r] = colIndex;
     });
 
     // Resolve any remaining active vertical merges
@@ -297,9 +306,17 @@ const parseDocxXml = (xmlString) => {
       finalizeVMerge(colIdx);
     }
 
+    const maxCols = rowColCounts.reduce((max, count) => Math.max(max, count || 0), 0);
+    const headers = maxCols
+      ? Array.from(headerRows)
+        .sort((a, b) => a - b)
+        .map((r) => ({ r, c: 0, rowspan: 1, colspan: maxCols }))
+      : [];
+
     return {
       cells,
       merges,
+      ...(headers.length ? { headers } : {}),
       meta: {
         sourceType: 'docx',
         tableIndex,
