@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import Home from './pages/Home.jsx';
 import Cropper from './pages/Cropper.jsx';
 import TableConverter from './pages/TableConverter/index.jsx';
+import ColorControl from './pages/ColorControl.jsx';
 
 const RedirectHandler = () => {
   const location = useLocation();
@@ -27,6 +28,7 @@ const App = () => {
         <Route path="/" element={<Home />} />
         <Route path="/cropper" element={<Cropper />} />
         <Route path="/table-converter" element={<TableConverter />} />
+        <Route path="/color-control" element={<ColorControl />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

@@ -16,7 +16,7 @@ const Home = () => {
           </div>
         </header>
 
-        <main className="mt-16 grid items-start gap-10 lg:grid-cols-[1.2fr_1fr]">
+        <main className="mt-16 space-y-10">
           <section className="space-y-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-4 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
               LiteLab Toolkit
@@ -24,12 +24,12 @@ const Home = () => {
             <h1 className="text-4xl font-black leading-tight text-white md:text-5xl">
               用 AI 打造的輕量工具集合
             </h1>
-            <p className="max-w-xl text-base text-slate-300 md:text-lg">
+            <p className="max-w-2xl text-base text-slate-300 md:text-lg">
               聚焦最常用的影像工作流程，快速進入工具、即時完成輸出。LiteLab 是你的輕量創作中控台。
             </p>
           </section>
 
-          <section className="flex flex-col gap-6">
+          <section className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.45)] backdrop-blur">
               <div className="flex items-center justify-between">
                 <div>
@@ -45,6 +45,25 @@ const Home = () => {
                   className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                 >
                   進入 Cropper
+                </Link>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.45)] backdrop-blur">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-black text-white">Color Control</h2>
+                  <p className="mt-2 text-sm text-slate-300">
+                    全域色彩與抽色工具，加上 Gemini AI 參考圖風格轉換，快速對齊影像色調。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6">
+                <Link
+                  to="/color-control"
+                  className="inline-flex items-center justify-center rounded-2xl bg-purple-600 px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-purple-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                >
+                  進入 Color Control
                 </Link>
               </div>
             </div>
