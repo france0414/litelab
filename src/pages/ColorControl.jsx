@@ -849,7 +849,17 @@ const ColorControl = () => {
                   placeholder="貼上你的 API Key（從 aistudio.google.com 取得）"
                   className="w-full bg-neutral-950/50 border border-indigo-500/30 rounded-lg px-3 py-2 text-sm text-white placeholder-indigo-300/30 focus:outline-none focus:border-indigo-400"
                 />
-                <p className="text-[10px] text-indigo-300/50 mt-1">Key 僅存於你的瀏覽器，不會上傳至任何伺服器。</p>
+                <div className="mt-1 flex items-center justify-between text-[10px]">
+                  <p className="text-indigo-300/50">Key 僅存於你的瀏覽器，不會上傳至任何伺服器。</p>
+                  <a
+                    href="https://aistudio.google.com/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-300/70 hover:text-indigo-200 underline"
+                  >
+                    取得 API Key
+                  </a>
+                </div>
               </div>
 
               <div className="flex flex-col gap-3">
