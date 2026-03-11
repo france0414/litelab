@@ -67,6 +67,40 @@ describe('tableParser', () => {
     expect(result.tables[0].cells).toContainEqual(expect.objectContaining({ r: 0, c: 1, value: 'B' }));
   });
 
+  it('preserves list structure in docx table cells', async () => {
+    const doc = new Document({
+      sections: [
+        {
+          children: [
+            new Table({
+              rows: [
+                new TableRow({
+                  children: [
+                    new TableCell({
+                      children: [
+                        new Paragraph({ text: 'Item 1', bullet: { level: 0 } }),
+                        new Paragraph({ text: 'Item 2', bullet: { level: 0 } }),
+                      ],
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    const result = await parseDocxArrayBuffer(buffer);
+
+    const hasListHtml = result.tables.some((table) =>
+      table.cells.some((cell) => cell.html && cell.html.includes('<ul>')),
+    );
+
+    expect(hasListHtml).toBe(true);
+  });
+
   it('maps docx table header rows to header ranges', async () => {
     const doc = new Document({
       sections: [

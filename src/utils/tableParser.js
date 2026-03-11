@@ -54,6 +54,61 @@ const findChildren = (parent, ns, localName) => {
   return result;
 };
 
+const parseNumberingXml = (xmlString) => {
+  if (!xmlString) {
+    return { getListType: () => null };
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, 'application/xml');
+  const abstractNums = new Map();
+
+  Array.from(doc.getElementsByTagName('w:abstractNum')).forEach((abstractNum) => {
+    const abstractNumId = getAttr(abstractNum, 'w', 'abstractNumId');
+    if (!abstractNumId) {
+      return;
+    }
+
+    const levels = new Map();
+    Array.from(abstractNum.getElementsByTagName('w:lvl')).forEach((lvl) => {
+      const ilvl = getAttr(lvl, 'w', 'ilvl');
+      const numFmtEl = findChild(lvl, 'w', 'numFmt');
+      const numFmt = numFmtEl ? getAttr(numFmtEl, 'w', 'val') : null;
+      if (ilvl !== null) {
+        levels.set(ilvl, numFmt);
+      }
+    });
+
+    abstractNums.set(abstractNumId, levels);
+  });
+
+  const numMap = new Map();
+  Array.from(doc.getElementsByTagName('w:num')).forEach((num) => {
+    const numId = getAttr(num, 'w', 'numId');
+    const abstractNumIdEl = findChild(num, 'w', 'abstractNumId');
+    const abstractNumId = getAttr(abstractNumIdEl, 'w', 'val');
+    if (numId && abstractNumId) {
+      numMap.set(numId, abstractNumId);
+    }
+  });
+
+  const getListType = (numId, ilvl) => {
+    if (!numId) {
+      return null;
+    }
+    const abstractNumId = numMap.get(numId);
+    const levels = abstractNums.get(abstractNumId);
+    const levelKey = ilvl ?? '0';
+    const numFmt = levels?.get(levelKey);
+    if (numFmt === 'bullet') {
+      return 'ul';
+    }
+    return numFmt ? 'ol' : 'ol';
+  };
+
+  return { getListType };
+};
+
 /* ── extract run-level style from <w:rPr> ── */
 
 const extractRunStyle = (rPr) => {
@@ -146,7 +201,7 @@ const buildRunHtml = (text, runStyle) => {
 
 /* ── parse a single <w:tc> (table cell) ── */
 
-const parseTc = (tc) => {
+const parseTc = (tc, listInfo) => {
   const tcPr = findChild(tc, 'w', 'tcPr');
 
   // gridSpan (colspan)
@@ -164,16 +219,31 @@ const parseTc = (tc) => {
   // collect text and build rich HTML from all <w:p> > <w:r>
   const paragraphs = findChildren(tc, 'w', 'p');
   const plainParts = [];
-  const htmlParts = [];
+  const paragraphData = [];
   let hasRichFormatting = false;
+  let hasListStructure = false;
 
   paragraphs.forEach((p, pIdx) => {
     if (pIdx > 0) {
       plainParts.push('\n');
-      htmlParts.push('<br>');
+    }
+
+    const pPr = findChild(p, 'w', 'pPr');
+    const numPr = findChild(pPr, 'w', 'numPr');
+    const numIdEl = findChild(numPr, 'w', 'numId');
+    const ilvlEl = findChild(numPr, 'w', 'ilvl');
+    const numId = numIdEl ? getAttr(numIdEl, 'w', 'val') : null;
+    const ilvl = ilvlEl ? getAttr(ilvlEl, 'w', 'val') : null;
+    const listType = numPr ? listInfo?.getListType?.(numId, ilvl) : null;
+
+    if (listType) {
+      hasListStructure = true;
     }
 
     const runs = findChildren(p, 'w', 'r');
+    const runHtmlParts = [];
+    const runPlainParts = [];
+
     runs.forEach((run) => {
       const rPr = findChild(run, 'w', 'rPr');
       const runStyle = extractRunStyle(rPr);
@@ -182,30 +252,81 @@ const parseTc = (tc) => {
       const runText = texts.map((t) => t.textContent || '').join('');
 
       if (runText) {
-        plainParts.push(runText);
+        runPlainParts.push(runText);
         const runHtml = buildRunHtml(runText, runStyle);
-        htmlParts.push(runHtml);
+        runHtmlParts.push(runHtml);
 
         if (runStyle.bold || runStyle.color || runStyle.bg || runStyle.vertAlign) {
           hasRichFormatting = true;
         }
       }
     });
+
+    const paragraphPlain = runPlainParts.join('');
+    const paragraphHtml = runHtmlParts.join('');
+    plainParts.push(paragraphPlain);
+
+    paragraphData.push({
+      plain: paragraphPlain,
+      html: paragraphHtml,
+      listType,
+      numId,
+      ilvl,
+    });
   });
 
+  const htmlParts = [];
+  let openList = null;
+  let lastWasPlain = false;
+
+  const closeList = () => {
+    if (openList) {
+      htmlParts.push(`</${openList.type}>`);
+      openList = null;
+    }
+  };
+
+  paragraphData.forEach((paragraph) => {
+    if (paragraph.listType) {
+      const key = `${paragraph.listType}:${paragraph.numId || ''}:${paragraph.ilvl || '0'}`;
+      if (!openList || openList.key !== key) {
+        closeList();
+        openList = { type: paragraph.listType, key };
+        htmlParts.push(`<${paragraph.listType}>`);
+      }
+
+      const content = paragraph.html || escapeHtmlText(paragraph.plain);
+      htmlParts.push(`<li>${content}</li>`);
+      lastWasPlain = false;
+      return;
+    }
+
+    closeList();
+    if (lastWasPlain) {
+      htmlParts.push('<br>');
+    }
+    const content = paragraph.html || escapeHtmlText(paragraph.plain);
+    htmlParts.push(content);
+    lastWasPlain = true;
+  });
+
+  closeList();
+
   const value = plainParts.join('').trim();
-  const html = hasRichFormatting ? htmlParts.join('') : undefined;
+  const html = hasRichFormatting || hasListStructure ? htmlParts.join('') : undefined;
 
   return { value, html, colspan, vMerge };
 };
 
 /* ── parse all tables from docx XML ── */
 
-const parseDocxXml = (xmlString) => {
+const parseDocxXml = (xmlString, numberingXmlString) => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlString, 'application/xml');
   const body = doc.getElementsByTagName('w:body')[0];
   if (!body) return [];
+
+  const listInfo = parseNumberingXml(numberingXmlString);
 
   const tables = findChildren(body, 'w', 'tbl');
   return tables.map((tbl, tableIndex) => {
@@ -251,7 +372,7 @@ const parseDocxXml = (xmlString) => {
       let colIndex = 0;
 
       tcs.forEach((tc) => {
-        const parsed = parseTc(tc);
+        const parsed = parseTc(tc, listInfo);
 
         if (parsed.vMerge === 'continue') {
           // This cell is part of a vertical merge – update the tracker
@@ -465,12 +586,13 @@ export const parseDocxArrayBuffer = async (arrayBuffer) => {
 
   const zip = await JSZip.loadAsync(arrayBuffer);
   const documentXml = await zip.file('word/document.xml')?.async('string');
+  const numberingXml = await zip.file('word/numbering.xml')?.async('string');
 
   if (!documentXml) {
     throw new Error('無法讀取 .docx 內容，檔案可能已損壞或格式不正確。');
   }
 
-  const tables = parseDocxXml(documentXml);
+  const tables = parseDocxXml(documentXml, numberingXml);
 
   if (!tables.length) {
     return { tables: [{ cells: [], merges: [], meta: { sourceType: 'docx', tableIndex: 0 } }], activeIndex: 0 };

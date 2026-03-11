@@ -241,7 +241,7 @@ const MergeEditor = ({
         </div>
       </div>
 
-      <div className="mt-4 overflow-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+      <div className="merge-editor-preview mt-4 overflow-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <table className="w-full border-separate border-spacing-0 text-xs">
           <tbody>
             {matrix.map((row, r) => (
