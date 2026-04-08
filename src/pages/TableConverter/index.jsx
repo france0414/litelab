@@ -21,6 +21,7 @@ import {
 import FileUploader from './components/FileUploader.jsx';
 import TableReview from './TableReview.jsx';
 import { buildEditableHtml } from './utils/buildEditableHtml.js';
+import { copyHtmlToClipboard } from './utils/copyHtmlToClipboard.js';
 
 const TableConverter = () => {
   const [status, setStatus] = useState('idle');
@@ -267,10 +268,10 @@ const TableConverter = () => {
               previewHtml={previewHtml}
               onExport={handleDownload}
               onCopyHtml={() => {
-                navigator.clipboard.writeText(previewHtml);
+                copyHtmlToClipboard(previewHtml);
               }}
               onCopyEditableHtml={() => {
-                navigator.clipboard.writeText(buildEditableHtml(previewHtml));
+                copyHtmlToClipboard(buildEditableHtml(previewHtml));
               }}
               table={activeTable}
               onMerge={handleMerge}

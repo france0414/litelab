@@ -61,32 +61,8 @@ const ExportPanel = ({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => onExport('html')}
-            className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-500"
-          >
-            下載 HTML
-          </button>
-          <button
-            type="button"
-            onClick={() => onExport('csv')}
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-black text-slate-200 transition hover:border-slate-500"
-          >
-            下載 CSV
-          </button>
-          <button
-            type="button"
-            onClick={() => onExport('json')}
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-black text-slate-200 transition hover:border-slate-500"
-          >
-            下載 JSON
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
+      <div className="mt-4 space-y-3">
+        <div className="flex flex-wrap gap-3">
           <button
             type="button"
             onClick={onCopyEditableHtml}
@@ -101,6 +77,33 @@ const ExportPanel = ({
             className="inline-flex items-center justify-center rounded-2xl border border-blue-500/40 bg-blue-600/20 px-4 py-3 text-sm font-black text-blue-200 transition hover:bg-blue-600/30"
           >
             {copied ? '✓ 已複製' : '複製 HTML'}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => onExport('html')}
+            className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-500"
+          >
+            下載 HTML
+          </button>
+          <button
+            type="button"
+            onClick={() => onExport('csv')}
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-black text-slate-200 transition hover:border-slate-500"
+          >
+            下載 CSV
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => onExport('json')}
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-black text-slate-200 transition hover:border-slate-500"
+          >
+            下載 JSON
           </button>
         </div>
       </div>
