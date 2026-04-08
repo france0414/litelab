@@ -46,4 +46,26 @@ describe('copyHtmlToClipboard', () => {
 
     expect(writeText).toHaveBeenCalledWith(html);
   });
+
+  it('falls back to writeText when html clipboard write is rejected', async () => {
+    const write = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const ClipboardItemMock = class {
+      constructor(items) {
+        this.items = items;
+      }
+    };
+
+    vi.stubGlobal('ClipboardItem', ClipboardItemMock);
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      value: { write, writeText },
+      configurable: true,
+    });
+
+    const html = '<table><tr><td>C</td></tr></table>';
+    await copyHtmlToClipboard(html);
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(html);
+  });
 });

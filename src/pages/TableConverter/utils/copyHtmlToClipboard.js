@@ -1,11 +1,15 @@
 export const copyHtmlToClipboard = async (html) => {
   if (navigator?.clipboard?.write && typeof ClipboardItem !== 'undefined') {
-    const item = new ClipboardItem({
-      'text/html': new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([html], { type: 'text/plain' }),
-    });
-    await navigator.clipboard.write([item]);
-    return;
+    try {
+      const item = new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([html], { type: 'text/plain' }),
+      });
+      await navigator.clipboard.write([item]);
+      return;
+    } catch {
+      // Fallback below for browsers/editors that reject rich clipboard writes.
+    }
   }
 
   if (navigator?.clipboard?.writeText) {
