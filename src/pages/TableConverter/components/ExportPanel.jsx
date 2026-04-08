@@ -1,6 +1,16 @@
 import { useState } from 'react';
 
-const ExportPanel = ({ onExport, onCopyHtml, stripColor, onStripColorChange, stripBold, onStripBoldChange, className, onClassNameChange }) => {
+const ExportPanel = ({
+  onExport,
+  onCopyHtml,
+  onCopyEditableHtml,
+  stripColor,
+  onStripColorChange,
+  stripBold,
+  onStripBoldChange,
+  className,
+  onClassNameChange,
+}) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -76,13 +86,23 @@ const ExportPanel = ({ onExport, onCopyHtml, stripColor, onStripColorChange, str
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="inline-flex items-center justify-center rounded-2xl border border-blue-500/40 bg-blue-600/20 px-4 py-3 text-sm font-black text-blue-200 transition hover:bg-blue-600/30"
-        >
-          {copied ? '✓ 已複製' : '複製 HTML'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onCopyEditableHtml}
+            className="inline-flex items-center justify-center rounded-2xl border border-cyan-500/40 bg-cyan-600/20 px-4 py-3 text-sm font-black text-cyan-200 transition hover:bg-cyan-600/30"
+          >
+            複製可編輯 HTML
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="inline-flex items-center justify-center rounded-2xl border border-blue-500/40 bg-blue-600/20 px-4 py-3 text-sm font-black text-blue-200 transition hover:bg-blue-600/30"
+          >
+            {copied ? '✓ 已複製' : '複製 HTML'}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ const TableReview = ({
   previewHtml,
   onExport,
   onCopyHtml,
+  onCopyEditableHtml,
   stripColor,
   onStripColorChange,
   stripBold,
@@ -72,6 +73,7 @@ const TableReview = ({
             <ExportPanel
               onExport={onExport}
               onCopyHtml={onCopyHtml}
+              onCopyEditableHtml={onCopyEditableHtml}
               stripColor={stripColor}
               onStripColorChange={onStripColorChange}
               stripBold={stripBold}
@@ -87,4 +89,3 @@ const TableReview = ({
 };
 
 export default TableReview;
-

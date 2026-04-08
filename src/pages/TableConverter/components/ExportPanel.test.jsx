@@ -36,4 +36,27 @@ describe('ExportPanel', () => {
 
     expect(onStripColorChange).toHaveBeenCalledWith(true);
   });
+
+  it('fires onCopyEditableHtml when editable copy button is clicked', async () => {
+    const onCopyEditableHtml = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ExportPanel
+        onExport={() => { }}
+        onCopyHtml={() => { }}
+        onCopyEditableHtml={onCopyEditableHtml}
+        stripColor={false}
+        onStripColorChange={() => { }}
+        stripBold={false}
+        onStripBoldChange={() => { }}
+        className=""
+        onClassNameChange={() => { }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '複製可編輯 HTML' }));
+
+    expect(onCopyEditableHtml).toHaveBeenCalledTimes(1);
+  });
 });

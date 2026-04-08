@@ -20,6 +20,7 @@ import {
 } from '../../utils/tableHistory.js';
 import FileUploader from './components/FileUploader.jsx';
 import TableReview from './TableReview.jsx';
+import { buildEditableHtml } from './utils/buildEditableHtml.js';
 
 const TableConverter = () => {
   const [status, setStatus] = useState('idle');
@@ -39,6 +40,14 @@ const TableConverter = () => {
 
     return result.tables[activeIndex] || result.tables[0];
   }, [result, activeIndex]);
+
+  const previewHtml = useMemo(() => {
+    if (!activeTable) {
+      return '';
+    }
+
+    return toHtml(activeTable, { stripColor, stripBold, className: tableClassName || undefined });
+  }, [activeTable, stripColor, stripBold, tableClassName]);
 
   const handleFileSelect = async (file) => {
     setStatus('parsing');
@@ -255,11 +264,13 @@ const TableConverter = () => {
               result={result}
               activeIndex={activeIndex}
               onSelect={setActiveIndex}
-              previewHtml={toHtml(activeTable, { stripColor, stripBold, className: tableClassName || undefined })}
+              previewHtml={previewHtml}
               onExport={handleDownload}
               onCopyHtml={() => {
-                const html = toHtml(activeTable, { stripColor, stripBold, className: tableClassName || undefined });
-                navigator.clipboard.writeText(html);
+                navigator.clipboard.writeText(previewHtml);
+              }}
+              onCopyEditableHtml={() => {
+                navigator.clipboard.writeText(buildEditableHtml(previewHtml));
               }}
               table={activeTable}
               onMerge={handleMerge}
