@@ -46,6 +46,7 @@ describe('ExportPanel', () => {
         onExport={() => { }}
         onCopyHtml={() => { }}
         onCopyEditableHtml={onCopyEditableHtml}
+        onCopyOdooHtml={() => { }}
         stripColor={false}
         onStripColorChange={() => { }}
         stripBold={false}
@@ -58,5 +59,29 @@ describe('ExportPanel', () => {
     await user.click(screen.getByRole('button', { name: '複製可編輯 HTML' }));
 
     expect(onCopyEditableHtml).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onCopyOdooHtml when odoo copy button is clicked', async () => {
+    const onCopyOdooHtml = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ExportPanel
+        onExport={() => { }}
+        onCopyHtml={() => { }}
+        onCopyEditableHtml={() => { }}
+        onCopyOdooHtml={onCopyOdooHtml}
+        stripColor={false}
+        onStripColorChange={() => { }}
+        stripBold={false}
+        onStripBoldChange={() => { }}
+        className=""
+        onClassNameChange={() => { }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '複製 Odoo 相容版' }));
+
+    expect(onCopyOdooHtml).toHaveBeenCalledTimes(1);
   });
 });

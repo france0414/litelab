@@ -20,7 +20,7 @@ import {
 } from '../../utils/tableHistory.js';
 import FileUploader from './components/FileUploader.jsx';
 import TableReview from './TableReview.jsx';
-import { buildEditableHtml } from './utils/buildEditableHtml.js';
+import { buildEditableHtml, buildOdooCompatibleHtml } from './utils/buildEditableHtml.js';
 import { copyHtmlToClipboard } from './utils/copyHtmlToClipboard.js';
 
 const TableConverter = () => {
@@ -272,6 +272,9 @@ const TableConverter = () => {
               }}
               onCopyEditableHtml={() => {
                 copyHtmlToClipboard(buildEditableHtml(previewHtml));
+              }}
+              onCopyOdooHtml={() => {
+                copyHtmlToClipboard(buildOdooCompatibleHtml(previewHtml));
               }}
               table={activeTable}
               onMerge={handleMerge}

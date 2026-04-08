@@ -1,9 +1,20 @@
-export const buildEditableHtml = (previewHtml) => {
+const extractTableHtml = (previewHtml) => {
   const tableMatch = previewHtml.match(/<table[\s\S]*?<\/table>/i);
-  const tableOnlyHtml = tableMatch ? tableMatch[0] : previewHtml;
-  const normalizedTableHtml = tableOnlyHtml.replace(
+  return tableMatch ? tableMatch[0] : previewHtml;
+};
+
+export const buildEditableHtml = (previewHtml) => {
+  if (previewHtml.includes('s_table_of_feature table-responsive')) {
+    return previewHtml;
+  }
+
+  const tableOnlyHtml = extractTableHtml(previewHtml);
+  return `<div class="s_table_of_feature table-responsive" data-vcss="001" data-snippet="s_table_of_feature" data-name="Table of Feature">${tableOnlyHtml}</div>`;
+};
+
+export const buildOdooCompatibleHtml = (previewHtml) => {
+  return extractTableHtml(previewHtml).replace(
     /<table[^>]*>/i,
-    '<table class="table table-rwd-content mb-3 o_colored_level" name="Table">',
+    '<table class="table table-bordered">',
   );
-  return `<div class="s_table_of_feature table-responsive" data-vcss="001" data-snippet="s_table_of_feature" data-name="Table of Feature">${normalizedTableHtml}</div>`;
 };

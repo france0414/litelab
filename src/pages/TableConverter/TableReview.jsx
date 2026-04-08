@@ -11,6 +11,7 @@ const TableReview = ({
   onExport,
   onCopyHtml,
   onCopyEditableHtml,
+  onCopyOdooHtml,
   stripColor,
   onStripColorChange,
   stripBold,
@@ -74,6 +75,7 @@ const TableReview = ({
               onExport={onExport}
               onCopyHtml={onCopyHtml}
               onCopyEditableHtml={onCopyEditableHtml}
+              onCopyOdooHtml={onCopyOdooHtml}
               stripColor={stripColor}
               onStripColorChange={onStripColorChange}
               stripBold={stripBold}
