@@ -256,8 +256,17 @@ export const toHtml = (table, options = {}) => {
 
             const styles = [];
             if (cell?.style?.align && !shouldStripAlign) {
-              const align = cell.style.align === 'both' ? 'justify' : cell.style.align;
-              styles.push(`text-align: ${align}`);
+              const alignMap = {
+                'center': 'center',
+                'centre': 'center',
+                'left': 'left',
+                'right': 'right',
+                'both': 'justify',
+                'justify': 'justify'
+              };
+              const rawAlign = String(cell.style.align || '').toLowerCase();
+              const align = alignMap[rawAlign] || rawAlign;
+              styles.push(`text-align: ${align} !important`);
             }
             const styleAttr = styles.length ? ` style="${styles.join('; ')}"` : '';
             const cellClass = 'o_colored_level o_cc';
