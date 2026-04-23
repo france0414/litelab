@@ -252,7 +252,14 @@ export const toHtml = (table, options = {}) => {
             const cell = cellMap.get(key);
             let content = cell?.html ? sanitizeHtml(cell.html) : escapeHtml(value);
 
-            return `<${tag}${rowspan}${colspan}>${content}</${tag}>`;
+            const styles = [];
+            if (cell?.style?.align) {
+              const align = cell.style.align === 'both' ? 'justify' : cell.style.align;
+              styles.push(`text-align: ${align}`);
+            }
+            const styleAttr = styles.length ? ` style="${styles.join('; ')}"` : '';
+
+            return `<${tag}${rowspan}${colspan}${styleAttr}>${content}</${tag}>`;
           })
           .filter(Boolean)
           .join('');

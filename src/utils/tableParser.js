@@ -229,6 +229,9 @@ const parseTc = (tc, listInfo) => {
     }
 
     const pPr = findChild(p, 'w', 'pPr');
+    const jcEl = findChild(pPr, 'w', 'jc');
+    const pAlign = jcEl ? getAttr(jcEl, 'w', 'val') : null;
+
     const numPr = findChild(pPr, 'w', 'numPr');
     const numIdEl = findChild(numPr, 'w', 'numId');
     const ilvlEl = findChild(numPr, 'w', 'ilvl');
@@ -272,6 +275,7 @@ const parseTc = (tc, listInfo) => {
       listType,
       numId,
       ilvl,
+      align: pAlign,
     });
   });
 
@@ -314,8 +318,12 @@ const parseTc = (tc, listInfo) => {
 
   const value = plainParts.join('').trim();
   const html = hasRichFormatting || hasListStructure ? htmlParts.join('') : undefined;
+  
+  // Use the alignment of the first paragraph as the cell's alignment
+  const cellAlign = paragraphData.find(p => p.align)?.align;
+  const style = cellAlign ? { align: cellAlign } : undefined;
 
-  return { value, html, colspan, vMerge };
+  return { value, html, colspan, vMerge, style };
 };
 
 /* ── parse all tables from docx XML ── */
