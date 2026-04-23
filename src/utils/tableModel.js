@@ -269,9 +269,10 @@ export const toHtml = (table, options = {}) => {
               styles.push(`text-align: ${align} !important`);
             }
             const styleAttr = styles.length ? ` style="${styles.join('; ')}"` : '';
-            const cellClass = `o_colored_level o_cc${isHeader ? ' th' : ''}`;
+            const cellClass = isHeader ? 'th' : '';
+            const classAttr = cellClass ? ` class="${cellClass}"` : '';
 
-            return `<${tag}${rowspan}${colspan}${styleAttr} class="${cellClass}">${content}</${tag}>`;
+            return `<${tag}${rowspan}${colspan}${styleAttr}${classAttr}>${content}</${tag}>`;
           })
           .filter(Boolean)
           .join('');
