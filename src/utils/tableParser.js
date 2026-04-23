@@ -454,9 +454,8 @@ const parseDocxXml = (xmlString, numberingXmlString) => {
   });
 };
 
-/* ── XLSX parsing (enhanced with style extraction) ── */
-
-const sheetToTable = (sheet, sheetName, tableIndex) => {
+/* ── XLSX parsing (enhanced with manual style extraction) ── */
+const sheetToTable = (sheet, sheetName, tableIndex, alignments = []) => {
   const cells = [];
   const merges = (sheet['!merges'] || []).map((merge) => ({
     r: merge.s.r,
@@ -477,15 +476,22 @@ const sheetToTable = (sheet, sheetName, tableIndex) => {
           const cellData = { r, c, value: cell.v };
 
           // Extract style from xlsx cell if available
-          if (cell.s) {
-            const style = {};
-            if (cell.s.font?.bold) style.bold = true;
-            if (cell.s.font?.color?.rgb) style.color = `#${cell.s.font.color.rgb.slice(-6)}`;
-            if (cell.s.fill?.fgColor?.rgb) style.bg = `#${cell.s.fill.fgColor.rgb.slice(-6)}`;
-            if (cell.s.alignment?.horizontal) style.align = cell.s.alignment.horizontal;
-            if (Object.keys(style).length > 0) cellData.style = style;
+          const style = {};
+          if (cell.s !== undefined) {
+            // If cell.s is an object (from SheetJS cellStyles: true)
+            if (typeof cell.s === 'object') {
+              if (cell.s.font?.bold) style.bold = true;
+              if (cell.s.font?.color?.rgb) style.color = `#${cell.s.font.color.rgb.slice(-6)}`;
+              if (cell.s.fill?.fgColor?.rgb) style.bg = `#${cell.s.fill.fgColor.rgb.slice(-6)}`;
+              if (cell.s.alignment?.horizontal) style.align = cell.s.alignment.horizontal;
+            } 
+            // If cell.s is a number (index into styles.xml)
+            else if (typeof cell.s === 'number' && alignments[cell.s]) {
+              style.align = alignments[cell.s];
+            }
           }
-
+          
+          if (Object.keys(style).length > 0) cellData.style = style;
           cells.push(cellData);
         }
       }
@@ -503,10 +509,34 @@ const sheetToTable = (sheet, sheetName, tableIndex) => {
   };
 };
 
-export const parseXlsxArrayBuffer = (arrayBuffer) => {
+export const parseXlsxArrayBuffer = async (arrayBuffer) => {
+  // Read workbook (cellStyles: true might convert .s to object, but we keep it for other styles)
   const workbook = XLSX.read(arrayBuffer, { type: 'array', cellStyles: true });
+  
+  // Manually extract alignments from xl/styles.xml using JSZip
+  const alignments = [];
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const stylesXml = await zip.file('xl/styles.xml')?.async('string');
+    if (stylesXml) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(stylesXml, 'application/xml');
+      const xfs = doc.getElementsByTagName('cellXfs')[0]?.getElementsByTagName('xf');
+      if (xfs) {
+        for (let i = 0; i < xfs.length; i++) {
+          const alignment = xfs[i].getElementsByTagName('alignment')[0];
+          if (alignment) {
+            alignments[i] = alignment.getAttribute('horizontal');
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Manual XLSX style parsing failed:', err);
+  }
+
   const tables = workbook.SheetNames.map((sheetName, index) =>
-    sheetToTable(workbook.Sheets[sheetName], sheetName, index),
+    sheetToTable(workbook.Sheets[sheetName], sheetName, index, alignments),
   );
 
   return { tables, activeIndex: 0 };
