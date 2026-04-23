@@ -15,6 +15,8 @@ const DEFAULT_POSTPROCESS = {
   innerRadius: 0
 };
 
+const VIRTUAL_BASE = 1000;
+
 const Cropper = () => {
   const MAX_IMAGES = 30;
   // 核心狀態 (多圖隊列)
@@ -42,6 +44,29 @@ const Cropper = () => {
 
   const containerRef = useRef(null);
   const imageRef = useRef(null);
+  const [containerRect, setContainerRect] = useState({ width: 680, height: 680 / aspect });
+
+  // 動態追蹤容器大小以實現 RWD
+  useEffect(() => {
+    const updateRect = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        if (rect.width > 0) {
+          setContainerRect({ width: rect.width, height: rect.height });
+        }
+      }
+    };
+    updateRect();
+    window.addEventListener('resize', updateRect);
+    // 增加一個觀察器，因為 aspect 改變也會影響高度
+    const observer = new ResizeObserver(updateRect);
+    if (containerRef.current) observer.observe(containerRef.current);
+    
+    return () => {
+      window.removeEventListener('resize', updateRect);
+      observer.disconnect();
+    };
+  }, [aspect, activeStep]);
 
   const currentItem = imageList[currentIndex] || null;
   const isPostprocess = activeStep === 'postprocess';
@@ -117,8 +142,7 @@ const Cropper = () => {
     canvas.height = customHeight;
     const ctx = canvas.getContext('2d');
 
-    const previewRefSize = 680;
-    const scale = customWidth / (aspect >= 1 ? previewRefSize : previewRefSize * aspect);
+    const scale = customWidth / VIRTUAL_BASE;
 
     const dw = img.naturalWidth * currentItem.zoom * scale;
     const dh = img.naturalHeight * currentItem.zoom * scale;
@@ -218,19 +242,17 @@ const Cropper = () => {
   };
 
   const fitImageToFrame = (mode) => {
-    if (!currentItem || !imageRef.current || !containerRef.current) return;
-    const frameRect = containerRef.current.getBoundingClientRect();
-    const img = imageRef.current;
-    const imgWidth = img.naturalWidth;
-    const imgHeight = img.naturalHeight;
-    if (!imgWidth || !imgHeight || !frameRect.width || !frameRect.height) return;
+    if (!currentItem || !imageRef.current) return;
+    const imgWidth = currentItem.width;
+    const imgHeight = currentItem.height;
+    if (!imgWidth || !imgHeight) return;
 
     const nextZoom = mode === 'width'
-      ? frameRect.width / imgWidth
-      : frameRect.height / imgHeight;
+      ? VIRTUAL_BASE / imgWidth
+      : (VIRTUAL_BASE / aspect) / imgHeight;
 
     updateCurrentItem({
-      zoom: Math.min(Math.max(nextZoom, 0.01), 10),
+      zoom: nextZoom,
       crop: { x: 0, y: 0 }
     });
     setLastFitMode(mode);
@@ -328,9 +350,7 @@ const Cropper = () => {
         }
 
         const innerRadius = Math.min(postprocess.innerRadius, Math.min(innerWidth, innerHeight) / 2);
-        const previewRefSize = 680;
-        const aspectRatio = innerWidth / innerHeight;
-        const scale = innerWidth / (aspectRatio >= 1 ? previewRefSize : previewRefSize * aspectRatio);
+        const scale = innerWidth / VIRTUAL_BASE;
         const dw = img.naturalWidth * item.zoom * scale;
         const dh = img.naturalHeight * item.zoom * scale;
         const dx = innerInset + (innerWidth / 2) + (item.crop.x * scale) - (dw / 2);
@@ -423,9 +443,7 @@ const Cropper = () => {
         }
 
         const innerRadius = Math.min(postprocess.innerRadius, Math.min(innerWidth, innerHeight) / 2);
-        const previewRefSize = 680;
-        const aspectRatio = innerWidth / innerHeight;
-        const scale = innerWidth / (aspectRatio >= 1 ? previewRefSize : previewRefSize * aspectRatio);
+        const scale = innerWidth / VIRTUAL_BASE;
         const dw = img.naturalWidth * item.zoom * scale;
         const dh = img.naturalHeight * item.zoom * scale;
         const dx = innerInset + (innerWidth / 2) + (item.crop.x * scale) - (dw / 2);
@@ -474,8 +492,7 @@ const Cropper = () => {
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         const mime = format === 'png' ? 'image/png' : 'image/jpeg';
-        const previewRefSize = 680;
-        const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+        const scale = targetWidth / VIRTUAL_BASE;
 
         const dw = img.naturalWidth * item.zoom * scale;
         const dh = img.naturalHeight * item.zoom * scale;
@@ -508,8 +525,7 @@ const Cropper = () => {
         canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         const mime = format === 'png' ? 'image/png' : 'image/jpeg';
-        const previewRefSize = 680;
-        const scale = targetWidth / (targetWidth / targetHeight >= 1 ? previewRefSize : previewRefSize * (targetWidth / targetHeight));
+        const scale = targetWidth / VIRTUAL_BASE;
 
         const dw = img.naturalWidth * item.zoom * scale;
         const dh = img.naturalHeight * item.zoom * scale;
@@ -633,12 +649,25 @@ const Cropper = () => {
   const onMouseDown = (e) => {
     if (!currentItem || isPostprocess) return;
     setIsDragging(true);
-    setDragStart({ x: e.clientX - currentItem.crop.x, y: e.clientY - currentItem.crop.y });
+    setDragStart({ 
+      mouseX: e.clientX, 
+      mouseY: e.clientY, 
+      origX: currentItem.crop.x, 
+      origY: currentItem.crop.y 
+    });
   };
   const onMouseMove = (e) => {
-    if (isDragging && !isPostprocess) {
+    if (isDragging && !isPostprocess && containerRect.width > 0) {
       setLastFitMode(null);
-      updateCurrentItem({ crop: { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y } });
+      const dx = e.clientX - dragStart.mouseX;
+      const dy = e.clientY - dragStart.mouseY;
+      const scaleFactor = VIRTUAL_BASE / containerRect.width;
+      updateCurrentItem({
+        crop: {
+          x: dragStart.origX + dx * scaleFactor,
+          y: dragStart.origY + dy * scaleFactor
+        }
+      });
     }
   };
 
@@ -754,7 +783,7 @@ const Cropper = () => {
                   if (isPostprocess) return;
                   const delta = e.deltaY * -0.0012;
                   setLastFitMode(null);
-                  updateCurrentItem({ zoom: Math.min(Math.max(currentItem.zoom + delta, 0.01), 10) });
+                  updateCurrentItem({ zoom: Math.min(Math.max(currentItem.zoom + delta, 0.001), 100) });
                 }}
               >
                 <div
@@ -788,7 +817,7 @@ const Cropper = () => {
                     draggable="false"
                     className="crop-image absolute max-w-none select-none"
                     style={{
-                      transform: `translate(${currentItem.crop.x}px, ${currentItem.crop.y}px) scale(${currentItem.zoom})`,
+                      transform: `translate(${currentItem.crop.x * (containerRect.width / VIRTUAL_BASE)}px, ${currentItem.crop.y * (containerRect.width / VIRTUAL_BASE)}px) scale(${currentItem.zoom * (containerRect.width / VIRTUAL_BASE)})`,
                       transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0, 0, 1)'
                     }}
                   />
