@@ -455,7 +455,7 @@ const parseDocxXml = (xmlString, numberingXmlString) => {
 };
 
 /* ── XLSX parsing (enhanced with manual style extraction) ── */
-const sheetToTable = (sheet, sheetName, tableIndex, stylesMap = []) => {
+const sheetToTable = (sheet, sheetName, tableIndex, stylesMap = [], cellStylesMap = {}) => {
   const cells = [];
   const merges = (sheet['!merges'] || []).map((merge) => ({
     r: merge.s.r,
@@ -477,15 +477,15 @@ const sheetToTable = (sheet, sheetName, tableIndex, stylesMap = []) => {
 
           // Extract style from xlsx cell if available
           let style = {};
-          if (cell.s !== undefined) {
-            // If cell.s is a number (index into stylesMap)
-            if (typeof cell.s === 'number' && stylesMap[cell.s]) {
-              style = { ...stylesMap[cell.s] };
-              // Clean up null/undefined properties
-              Object.keys(style).forEach(key => {
-                if (style[key] === null || style[key] === undefined) delete style[key];
-              });
-            }
+          const address = XLSX.utils.encode_cell({ r, c });
+          const styleIndex = cellStylesMap[address];
+          
+          if (styleIndex !== undefined && stylesMap[styleIndex]) {
+            style = { ...stylesMap[styleIndex] };
+            // Clean up null/undefined properties
+            Object.keys(style).forEach(key => {
+              if (style[key] === null || style[key] === undefined) delete style[key];
+            });
           }
           
           if (Object.keys(style).length > 0) cellData.style = style;
@@ -507,30 +507,32 @@ const sheetToTable = (sheet, sheetName, tableIndex, stylesMap = []) => {
 };
 
 export const parseXlsxArrayBuffer = async (arrayBuffer) => {
-  // Read workbook WITHOUT cellStyles to preserve the original style index in .s
+  // Read workbook (for values and structure)
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   
-  // Manually extract styles from xl/styles.xml using JSZip
+  // Manually extract styles from xl/styles.xml and xl/worksheets/*.xml using JSZip
   const stylesMap = [];
+  const sheetStyles = []; // Array of maps: sheetIndex -> { cellAddress: styleIndex }
+
   try {
     const zip = await JSZip.loadAsync(arrayBuffer);
+    
+    // 1. Parse styles.xml
     const stylesXml = await zip.file('xl/styles.xml')?.async('string');
     if (stylesXml) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(stylesXml, 'application/xml');
       
-      // Parse Fonts
       const fonts = [];
       const fontEls = doc.getElementsByTagName('font');
       for (let i = 0; i < fontEls.length; i++) {
         const font = fontEls[i];
         fonts[i] = {
-          bold: font.getElementsByTagName('b').length > 0,
+          bold: font.getElementsByTagName('b').length > 0 || font.getElementsByTagName('w:b').length > 0,
           color: font.getElementsByTagName('color')[0]?.getAttribute('rgb')?.slice(-6)
         };
       }
       
-      // Parse Fills
       const fills = [];
       const fillEls = doc.getElementsByTagName('fill');
       for (let i = 0; i < fillEls.length; i++) {
@@ -541,7 +543,6 @@ export const parseXlsxArrayBuffer = async (arrayBuffer) => {
         }
       }
 
-      // Parse Cell XFs (mapping to cells)
       const xfs = doc.getElementsByTagName('cellXfs')[0]?.getElementsByTagName('xf');
       if (xfs) {
         for (let i = 0; i < xfs.length; i++) {
@@ -559,12 +560,33 @@ export const parseXlsxArrayBuffer = async (arrayBuffer) => {
         }
       }
     }
+
+    // 2. Parse individual sheet XMLs to get raw 's' attributes for each cell
+    for (let i = 0; i < workbook.SheetNames.length; i++) {
+      const sheetPath = `xl/worksheets/sheet${i + 1}.xml`;
+      const sheetXml = await zip.file(sheetPath)?.async('string');
+      const cellMap = {};
+      if (sheetXml) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(sheetXml, 'application/xml');
+        const cs = doc.getElementsByTagName('c');
+        for (let j = 0; j < cs.length; j++) {
+          const c = cs[j];
+          const r = c.getAttribute('r');
+          const s = c.getAttribute('s');
+          if (r && s !== null) {
+            cellMap[r] = parseInt(s, 10);
+          }
+        }
+      }
+      sheetStyles[i] = cellMap;
+    }
   } catch (err) {
     console.warn('Manual XLSX style parsing failed:', err);
   }
 
   const tables = workbook.SheetNames.map((sheetName, index) =>
-    sheetToTable(workbook.Sheets[sheetName], sheetName, index, stylesMap),
+    sheetToTable(workbook.Sheets[sheetName], sheetName, index, stylesMap, sheetStyles[index] || {}),
   );
 
   return { tables, activeIndex: 0 };
