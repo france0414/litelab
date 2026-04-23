@@ -455,7 +455,7 @@ const parseDocxXml = (xmlString, numberingXmlString) => {
 };
 
 /* ── XLSX parsing (enhanced with manual style extraction) ── */
-const sheetToTable = (sheet, sheetName, tableIndex, alignments = []) => {
+const sheetToTable = (sheet, sheetName, tableIndex, stylesMap = []) => {
   const cells = [];
   const merges = (sheet['!merges'] || []).map((merge) => ({
     r: merge.s.r,
@@ -476,18 +476,15 @@ const sheetToTable = (sheet, sheetName, tableIndex, alignments = []) => {
           const cellData = { r, c, value: cell.v };
 
           // Extract style from xlsx cell if available
-          const style = {};
+          let style = {};
           if (cell.s !== undefined) {
-            // If cell.s is an object (from SheetJS cellStyles: true)
-            if (typeof cell.s === 'object') {
-              if (cell.s.font?.bold) style.bold = true;
-              if (cell.s.font?.color?.rgb) style.color = `#${cell.s.font.color.rgb.slice(-6)}`;
-              if (cell.s.fill?.fgColor?.rgb) style.bg = `#${cell.s.fill.fgColor.rgb.slice(-6)}`;
-              if (cell.s.alignment?.horizontal) style.align = cell.s.alignment.horizontal;
-            } 
-            // If cell.s is a number (index into styles.xml)
-            else if (typeof cell.s === 'number' && alignments[cell.s]) {
-              style.align = alignments[cell.s];
+            // If cell.s is a number (index into stylesMap)
+            if (typeof cell.s === 'number' && stylesMap[cell.s]) {
+              style = { ...stylesMap[cell.s] };
+              // Clean up null/undefined properties
+              Object.keys(style).forEach(key => {
+                if (style[key] === null || style[key] === undefined) delete style[key];
+              });
             }
           }
           
@@ -510,24 +507,55 @@ const sheetToTable = (sheet, sheetName, tableIndex, alignments = []) => {
 };
 
 export const parseXlsxArrayBuffer = async (arrayBuffer) => {
-  // Read workbook (cellStyles: true might convert .s to object, but we keep it for other styles)
-  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellStyles: true });
+  // Read workbook WITHOUT cellStyles to preserve the original style index in .s
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   
-  // Manually extract alignments from xl/styles.xml using JSZip
-  const alignments = [];
+  // Manually extract styles from xl/styles.xml using JSZip
+  const stylesMap = [];
   try {
     const zip = await JSZip.loadAsync(arrayBuffer);
     const stylesXml = await zip.file('xl/styles.xml')?.async('string');
     if (stylesXml) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(stylesXml, 'application/xml');
+      
+      // Parse Fonts
+      const fonts = [];
+      const fontEls = doc.getElementsByTagName('font');
+      for (let i = 0; i < fontEls.length; i++) {
+        const font = fontEls[i];
+        fonts[i] = {
+          bold: font.getElementsByTagName('b').length > 0,
+          color: font.getElementsByTagName('color')[0]?.getAttribute('rgb')?.slice(-6)
+        };
+      }
+      
+      // Parse Fills
+      const fills = [];
+      const fillEls = doc.getElementsByTagName('fill');
+      for (let i = 0; i < fillEls.length; i++) {
+        const fill = fillEls[i];
+        const fgColor = fill.getElementsByTagName('fgColor')[0];
+        if (fgColor) {
+          fills[i] = fgColor.getAttribute('rgb')?.slice(-6);
+        }
+      }
+
+      // Parse Cell XFs (mapping to cells)
       const xfs = doc.getElementsByTagName('cellXfs')[0]?.getElementsByTagName('xf');
       if (xfs) {
         for (let i = 0; i < xfs.length; i++) {
-          const alignment = xfs[i].getElementsByTagName('alignment')[0];
-          if (alignment) {
-            alignments[i] = alignment.getAttribute('horizontal');
-          }
+          const xf = xfs[i];
+          const alignment = xf.getElementsByTagName('alignment')[0];
+          const fontId = xf.getAttribute('fontId');
+          const fillId = xf.getAttribute('fillId');
+          
+          stylesMap[i] = {
+            align: alignment ? alignment.getAttribute('horizontal') : null,
+            bold: fonts[fontId]?.bold,
+            color: fonts[fontId]?.color && fonts[fontId].color !== '000000' ? `#${fonts[fontId].color}` : null,
+            bg: fills[fillId] && fills[fillId] !== 'FFFFFF' ? `#${fills[fillId]}` : null
+          };
         }
       }
     }
@@ -536,7 +564,7 @@ export const parseXlsxArrayBuffer = async (arrayBuffer) => {
   }
 
   const tables = workbook.SheetNames.map((sheetName, index) =>
-    sheetToTable(workbook.Sheets[sheetName], sheetName, index, alignments),
+    sheetToTable(workbook.Sheets[sheetName], sheetName, index, stylesMap),
   );
 
   return { tables, activeIndex: 0 };
