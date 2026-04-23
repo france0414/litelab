@@ -20,7 +20,7 @@ export const parseTableFile = async (file) => {
     : await new Response(file).arrayBuffer();
 
   if (extension === 'xlsx') {
-    const parsed = parseXlsxArrayBuffer(arrayBuffer);
+    const parsed = await parseXlsxArrayBuffer(arrayBuffer);
     const tables = parsed.tables.filter(hasContent);
 
     if (!tables.length) {
