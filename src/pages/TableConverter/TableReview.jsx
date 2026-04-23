@@ -16,6 +16,8 @@ const TableReview = ({
   onStripColorChange,
   stripBold,
   onStripBoldChange,
+  stripAlign,
+  onStripAlignChange,
   tableClassName,
   onClassNameChange,
   table,
@@ -80,6 +82,8 @@ const TableReview = ({
               onStripColorChange={onStripColorChange}
               stripBold={stripBold}
               onStripBoldChange={onStripBoldChange}
+              stripAlign={stripAlign}
+              onStripAlignChange={onStripAlignChange}
               className={tableClassName}
               onClassNameChange={onClassNameChange}
             />

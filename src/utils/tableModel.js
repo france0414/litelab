@@ -232,6 +232,8 @@ export const toHtml = (table, options = {}) => {
     return result;
   };
 
+  const shouldStripAlign = options.stripAlign;
+
   const renderRows = (start, end, useThead) =>
     matrix
       .slice(start, end)
@@ -253,7 +255,7 @@ export const toHtml = (table, options = {}) => {
             let content = cell?.html ? sanitizeHtml(cell.html) : escapeHtml(value);
 
             const styles = [];
-            if (cell?.style?.align) {
+            if (cell?.style?.align && !shouldStripAlign) {
               const align = cell.style.align === 'both' ? 'justify' : cell.style.align;
               styles.push(`text-align: ${align}`);
             }

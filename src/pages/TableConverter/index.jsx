@@ -32,6 +32,7 @@ const TableConverter = () => {
   const [fileName, setFileName] = useState('');
   const [stripColor, setStripColor] = useState(false);
   const [stripBold, setStripBold] = useState(false);
+  const [stripAlign, setStripAlign] = useState(false);
   const [tableClassName, setTableClassName] = useState('');
 
   const activeTable = useMemo(() => {
@@ -47,8 +48,13 @@ const TableConverter = () => {
       return '';
     }
 
-    return toHtml(activeTable, { stripColor, stripBold, className: tableClassName || undefined });
-  }, [activeTable, stripColor, stripBold, tableClassName]);
+    return toHtml(activeTable, { 
+      stripColor, 
+      stripBold, 
+      stripAlign,
+      className: tableClassName || undefined 
+    });
+  }, [activeTable, stripColor, stripBold, stripAlign, tableClassName]);
 
   const handleFileSelect = async (file) => {
     setStatus('parsing');
@@ -59,6 +65,7 @@ const TableConverter = () => {
     setFileName(file.name);
     setStripColor(false);
     setStripBold(false);
+    setStripAlign(false);
     setTableClassName('');
 
     try {
@@ -82,7 +89,12 @@ const TableConverter = () => {
     let mime = '';
 
     if (type === 'html') {
-      content = toHtml(activeTable, { stripColor, stripBold, className: tableClassName || undefined });
+      content = toHtml(activeTable, { 
+        stripColor, 
+        stripBold, 
+        stripAlign,
+        className: tableClassName || undefined 
+      });
       extension = 'html';
       mime = 'text/html';
     }
@@ -286,6 +298,8 @@ const TableConverter = () => {
               onStripColorChange={setStripColor}
               stripBold={stripBold}
               onStripBoldChange={setStripBold}
+              stripAlign={stripAlign}
+              onStripAlignChange={setStripAlign}
               tableClassName={tableClassName}
               onClassNameChange={setTableClassName}
               onUndo={handleUndo}

@@ -9,6 +9,8 @@ const ExportPanel = ({
   onStripColorChange,
   stripBold,
   onStripBoldChange,
+  stripAlign,
+  onStripAlignChange,
   className,
   onClassNameChange,
 }) => {
@@ -48,6 +50,16 @@ const ExportPanel = ({
             className="h-4 w-4 rounded border border-slate-600 bg-slate-950/60"
           />
           清除粗體
+        </label>
+
+        <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+          <input
+            type="checkbox"
+            checked={stripAlign}
+            onChange={() => onStripAlignChange(!stripAlign)}
+            className="h-4 w-4 rounded border border-slate-600 bg-slate-950/60"
+          />
+          清除對齊
         </label>
 
         <div className="flex items-center gap-2">
