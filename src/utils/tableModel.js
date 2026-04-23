@@ -250,7 +250,7 @@ export const toHtml = (table, options = {}) => {
             const rowspan = merge ? ` rowspan="${merge.rowspan}"` : '';
             const colspan = merge ? ` colspan="${merge.colspan}"` : '';
             const isHeader = useThead || isHeaderPosition(table, r, c);
-            const tag = isHeader ? 'th' : 'td';
+            const tag = 'td';
             const cell = cellMap.get(key);
             let content = cell?.html ? sanitizeHtml(cell.html) : escapeHtml(value);
 
