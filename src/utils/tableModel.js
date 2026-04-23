@@ -260,8 +260,9 @@ export const toHtml = (table, options = {}) => {
               styles.push(`text-align: ${align}`);
             }
             const styleAttr = styles.length ? ` style="${styles.join('; ')}"` : '';
+            const cellClass = 'o_colored_level o_cc';
 
-            return `<${tag}${rowspan}${colspan}${styleAttr}>${content}</${tag}>`;
+            return `<${tag}${rowspan}${colspan}${styleAttr} class="${cellClass}">${content}</${tag}>`;
           })
           .filter(Boolean)
           .join('');
@@ -274,7 +275,7 @@ export const toHtml = (table, options = {}) => {
   const classAttr = ` class="${baseClassName}"`;
   let html = `<table${classAttr}>`;
   if (headerRows > 0) {
-    html += `<thead>${renderRows(0, headerRows, true)}</thead>`;
+    html += `<thead class="o_colored_level o_cc">${renderRows(0, headerRows, true)}</thead>`;
   }
   html += `<tbody>${renderRows(headerRows, matrix.length, false)}</tbody></table>`;
   return `<div class="s_table_of_feature table-responsive" data-vcss="001" data-snippet="s_table_of_feature" data-name="Table of Feature" data-tablefeature-template="flexible_content">${html}</div>`;
