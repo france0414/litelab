@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Upload,
   Download,
+  Plus,
   Image as ImageIcon,
   RotateCcw,
   RotateCw,
