@@ -97,13 +97,7 @@ const ExportPanel = ({
             複製可編輯 HTML
           </button>
 
-          <button
-            type="button"
-            onClick={onCopyOdooHtml}
-            className="inline-flex items-center justify-center rounded-2xl border border-amber-500/40 bg-amber-600/20 px-4 py-3 text-sm font-black text-amber-200 transition hover:bg-amber-600/30"
-          >
-            複製 Odoo 相容版
-          </button>
+
 
           <button
             type="button"
