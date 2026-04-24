@@ -13,7 +13,10 @@ const ExportPanel = ({
   onStripAlignChange,
   className,
   onClassNameChange,
+  showBorder,
+  onShowBorderChange,
 }) => {
+
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -61,6 +64,16 @@ const ExportPanel = ({
           />
           清除對齊
         </label>
+        <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+          <input
+            type="checkbox"
+            checked={showBorder}
+            onChange={() => onShowBorderChange(!showBorder)}
+            className="h-4 w-4 rounded border border-slate-600 bg-slate-950/60"
+          />
+          顯示邊線
+        </label>
+
 
         <div className="flex items-center gap-2">
           <label className="text-xs font-semibold text-slate-300">Class Name</label>

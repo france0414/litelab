@@ -281,8 +281,14 @@ export const toHtml = (table, options = {}) => {
       })
       .join('');
 
-  const baseClassName = options.className ? `table ${options.className}` : 'table';
-  const classAttr = ` class="${baseClassName}"`;
+  const classes = ['table', 'o_colored_level'];
+  if (options.showBorder) {
+    classes.push('table-bordered');
+  }
+  if (options.className) {
+    classes.push(options.className);
+  }
+  const classAttr = ` class="${classes.join(' ')}"`;
   let html = `<table${classAttr}>`;
   if (headerRows > 0) {
     html += `<thead class="o_colored_level o_cc">${renderRows(0, headerRows, true)}</thead>`;

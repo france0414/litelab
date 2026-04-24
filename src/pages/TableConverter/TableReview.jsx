@@ -20,7 +20,10 @@ const TableReview = ({
   onStripAlignChange,
   tableClassName,
   onClassNameChange,
+  showBorder,
+  onShowBorderChange,
   table,
+
   onMerge,
   onSplit,
   onUndo,
@@ -86,7 +89,10 @@ const TableReview = ({
               onStripAlignChange={onStripAlignChange}
               className={tableClassName}
               onClassNameChange={onClassNameChange}
+              showBorder={showBorder}
+              onShowBorderChange={onShowBorderChange}
             />
+
           </div>
         </div>
       </div>

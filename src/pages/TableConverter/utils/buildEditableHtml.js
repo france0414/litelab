@@ -13,8 +13,5 @@ export const buildEditableHtml = (previewHtml) => {
 };
 
 export const buildOdooCompatibleHtml = (previewHtml) => {
-  return extractTableHtml(previewHtml).replace(
-    /<table[^>]*>/i,
-    '<table class="table table-bordered">',
-  );
+  return extractTableHtml(previewHtml);
 };

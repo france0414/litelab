@@ -34,6 +34,8 @@ const TableConverter = () => {
   const [stripBold, setStripBold] = useState(false);
   const [stripAlign, setStripAlign] = useState(false);
   const [tableClassName, setTableClassName] = useState('');
+  const [showBorder, setShowBorder] = useState(true);
+
 
   const activeTable = useMemo(() => {
     if (!result || !result.tables.length) {
@@ -52,9 +54,11 @@ const TableConverter = () => {
       stripColor, 
       stripBold, 
       stripAlign,
+      showBorder,
       className: tableClassName || undefined 
     });
-  }, [activeTable, stripColor, stripBold, stripAlign, tableClassName]);
+  }, [activeTable, stripColor, stripBold, stripAlign, showBorder, tableClassName]);
+
 
   const handleFileSelect = async (file) => {
     setStatus('parsing');
@@ -67,6 +71,8 @@ const TableConverter = () => {
     setStripBold(false);
     setStripAlign(false);
     setTableClassName('');
+    setShowBorder(true);
+
 
     try {
       const parsed = await parseTableFile(file);
@@ -93,8 +99,10 @@ const TableConverter = () => {
         stripColor, 
         stripBold, 
         stripAlign,
+        showBorder,
         className: tableClassName || undefined 
       });
+
       extension = 'html';
       mime = 'text/html';
     }
@@ -302,12 +310,15 @@ const TableConverter = () => {
               onStripAlignChange={setStripAlign}
               tableClassName={tableClassName}
               onClassNameChange={setTableClassName}
+              showBorder={showBorder}
+              onShowBorderChange={setShowBorder}
               onUndo={handleUndo}
               onRedo={handleRedo}
               onReset={handleReset}
               canUndo={Boolean(history?.past.length)}
               canRedo={Boolean(history?.future.length)}
             />
+
           )}
         </main>
       </div>
