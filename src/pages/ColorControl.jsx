@@ -113,6 +113,29 @@ function rgbToHsl(r, g, b) {
   return [h, s, l];
 }
 
+function hslToRgb(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  let r, g, b;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
 const ColorControl = () => {
   const [imageList, setImageList] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
@@ -365,11 +388,20 @@ const ColorControl = () => {
           const tempAdj = currentSettings.temperature / 1000;
           const tintAdj = currentSettings.tint / 1000;
 
+          // 核心校準：將 UI 的 HSL Hue 轉為內部 OKLab Hue
+          let targetOklabHue = currentAdvanced.targetHue;
+          if (currentAdvanced.enabled) {
+            // 透過一個高彩度的樣本來獲取對應空間的 Hue
+            const [tempR, tempG, tempB] = hslToRgb(currentAdvanced.targetHue, 100, 50);
+            const [tL, ta, tb] = rgbToOklab(tempR, tempG, tempB);
+            [targetOklabHue] = oklabToHsl(tL, ta, tb);
+          }
+
           for (let i = 0; i < data.length; i += 4) {
             const r = data[i], g = data[i + 1], b = data[i + 2];
             let [L, a, b_] = rgbToOklab(r, g, b);
 
-            // A. 陰影與高光 (基於 L 通道)
+            // A. 陰影與高光
             if (L < 0.5) {
               const weight = Math.pow(1 - L * 2, 2);
               L += shadowAdj * weight;
@@ -379,23 +411,22 @@ const ColorControl = () => {
             }
             L = Math.max(0, Math.min(1, L));
 
-            // B. 色溫與色調 (調整 a, b 通道)
-            b_ += tempAdj; // 正值變黃(暖)，負值變藍(冷)
-            a += tintAdj; // 正值變洋紅，負值變綠
+            // B. 色溫與色調
+            b_ += tempAdj;
+            a += tintAdj;
 
-            // C. 選項色相移動 (OKLab 距離演算法)
+            // C. 選項色相移動 (使用校準後的 targetOklabHue)
             if (currentAdvanced.enabled) {
               let [h, s] = oklabToHsl(L, a, b_);
-              let dist = Math.abs(h - currentAdvanced.targetHue);
+              let dist = Math.abs(h - targetOklabHue);
               if (dist > 180) dist = 360 - dist;
 
               if (dist <= currentAdvanced.tolerance) {
-                const weight = Math.pow(1 - (dist / currentAdvanced.tolerance), 2);
+                const weight = 1 - (dist / currentAdvanced.tolerance); // 改為線性權重
                 h = (h + (currentAdvanced.hueShift * weight) + 360) % 360;
                 const satAdjust = currentAdvanced.satShift / 100;
-                s = Math.max(0, s + (satAdjust * weight * s));
+                s = Math.max(0, s * (1 + satAdjust * weight));
                 
-                // 轉回 a, b
                 const rad = h * (Math.PI / 180);
                 a = Math.cos(rad) * s;
                 b_ = Math.sin(rad) * s;
@@ -483,6 +514,14 @@ const ColorControl = () => {
       const tempAdj = settings.temperature / 1000;
       const tintAdj = settings.tint / 1000;
 
+      // 核心校準
+      let targetOklabHue = advanced.targetHue;
+      if (advanced.enabled) {
+        const [tempR, tempG, tempB] = hslToRgb(advanced.targetHue, 100, 50);
+        const [tL, ta, tb] = rgbToOklab(tempR, tempG, tempB);
+        [targetOklabHue] = oklabToHsl(tL, ta, tb);
+      }
+
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i], g = data[i + 1], b = data[i + 2];
         let [L, a, b_] = rgbToOklab(r, g, b);
@@ -501,14 +540,14 @@ const ColorControl = () => {
 
         if (advanced.enabled) {
           let [h, s] = oklabToHsl(L, a, b_);
-          let dist = Math.abs(h - advanced.targetHue);
+          let dist = Math.abs(h - targetOklabHue);
           if (dist > 180) dist = 360 - dist;
 
           if (dist <= advanced.tolerance) {
-            const weight = Math.pow(1 - (dist / advanced.tolerance), 2);
+            const weight = 1 - (dist / advanced.tolerance);
             h = (h + (advanced.hueShift * weight) + 360) % 360;
             const satAdjust = advanced.satShift / 100;
-            s = Math.max(0, s + (satAdjust * weight * s));
+            s = Math.max(0, s * (1 + satAdjust * weight));
             const rad = h * (Math.PI / 180);
             a = Math.cos(rad) * s;
             b_ = Math.sin(rad) * s;
