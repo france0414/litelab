@@ -30,19 +30,24 @@ const DEFAULT_SETTINGS = {
   tint: 0
 };
 
-const DEFAULT_ADVANCED = {
+const DEFAULT_ADVANCED_LAYER = {
   enabled: true,
-  targetHue: 60,
+  targetHue: 0,
   tolerance: 30,
   hueShift: 0,
-  satShift: 0,
+  satShift: 0
 };
+
+const createDefaultLayer = () => ({
+  id: Math.random().toString(36).substr(2, 9),
+  ...DEFAULT_ADVANCED_LAYER
+});
 
 const MAX_IMAGES = 30;
 const MAX_HISTORY = 20;
 
 const cloneSettings = (settings) => ({ ...settings });
-const cloneAdvanced = (advanced) => ({ ...advanced });
+const cloneAdvancedLayers = (layers) => layers.map(l => ({ ...l }));
 
 // OKLab 色彩科學工具 (Perceptually Uniform Color Space)
 function srgbToLinear(c) {
@@ -168,9 +173,18 @@ const ColorControl = () => {
   const advancedTimeoutRef = useRef(null);
   const advancedRafRef = useRef(null);
 
+  const [activeLayerId, setActiveLayerId] = useState(null);
+
   const currentItem = imageList[currentIndex] || null;
   const currentSettings = currentItem?.settings || DEFAULT_SETTINGS;
-  const currentAdvanced = currentItem?.advanced || DEFAULT_ADVANCED;
+  const advancedLayers = currentItem?.advancedLayers || [];
+  const activeLayer = advancedLayers.find(l => l.id === activeLayerId) || advancedLayers[0] || null;
+
+  useEffect(() => {
+    if (activeLayer && !activeLayerId) {
+      setActiveLayerId(activeLayer.id);
+    }
+  }, [activeLayer, activeLayerId]);
   const currentImageObj = currentItem?.imageObj || null;
   const canUndo = Boolean(currentItem?.history && currentItem.historyIndex > 0);
   const canRedo = Boolean(currentItem?.history && currentItem.historyIndex < currentItem.history.length - 1);
@@ -185,13 +199,62 @@ const ColorControl = () => {
     });
   };
 
-  const updateCurrentItem = (updates) => {
-    setImageList(prev => prev.map((item, idx) =>
-      idx === currentIndex ? { ...item, ...updates } : item
-    ));
+  const updateCurrentSettings = (partialSettings) => {
+    if (!currentItem) return;
+    const nextSettings = { ...currentSettings, ...partialSettings };
+    pushHistoryForIndex(currentIndex, nextSettings, currentItem.advancedLayers);
   };
 
-  const pushHistoryForIndex = (index, nextSettings, nextAdvanced) => {
+  const updateCurrentAdvanced = (updates) => {
+    if (!currentItem || !activeLayerId) return;
+    const newLayers = advancedLayers.map(l => l.id === activeLayerId ? { ...l, ...updates } : l);
+    
+    setImageList(prev => {
+      const next = [...prev];
+      next[currentIndex] = {
+        ...currentItem,
+        advancedLayers: newLayers,
+        history: [...currentItem.history.slice(0, currentItem.historyIndex + 1), { settings: cloneSettings(currentSettings), advancedLayers: cloneAdvancedLayers(newLayers) }],
+        historyIndex: currentItem.historyIndex + 1
+      };
+      return next;
+    });
+  };
+
+  const addAdvancedLayer = () => {
+    if (!currentItem) return;
+    const newLayer = createDefaultLayer();
+    const newLayers = [...advancedLayers, newLayer];
+    setImageList(prev => {
+      const next = [...prev];
+      next[currentIndex] = {
+        ...currentItem,
+        advancedLayers: newLayers,
+        history: [...currentItem.history.slice(0, currentItem.historyIndex + 1), { settings: cloneSettings(currentSettings), advancedLayers: cloneAdvancedLayers(newLayers) }],
+        historyIndex: currentItem.historyIndex + 1
+      };
+      return next;
+    });
+    setActiveLayerId(newLayer.id);
+  };
+
+  const removeAdvancedLayer = (id) => {
+    if (!currentItem || advancedLayers.length <= 1) return;
+    const newLayers = advancedLayers.filter(l => l.id !== id);
+    setImageList(prev => {
+      const next = [...prev];
+      next[currentIndex] = {
+        ...currentItem,
+        advancedLayers: newLayers,
+        history: [...currentItem.history.slice(0, currentItem.historyIndex + 1), { settings: cloneSettings(currentSettings), advancedLayers: cloneAdvancedLayers(newLayers) }],
+        historyIndex: currentItem.historyIndex + 1
+      };
+      return next;
+    });
+    if (activeLayerId === id) setActiveLayerId(newLayers[0]?.id);
+  };
+
+  const pushHistoryForIndex = (index, nextSettings, nextAdvancedLayers) => {
     setImageList(prev => {
       const next = [...prev];
       const item = next[index];
@@ -202,7 +265,7 @@ const ColorControl = () => {
       const trimmed = historyBase.slice(0, baseIndex + 1);
       const nextEntry = {
         settings: cloneSettings(nextSettings),
-        advanced: cloneAdvanced(nextAdvanced)
+        advancedLayers: cloneAdvancedLayers(nextAdvancedLayers)
       };
       const nextHistory = [...trimmed, nextEntry];
       let nextHistoryIndex = nextHistory.length - 1;
@@ -216,40 +279,12 @@ const ColorControl = () => {
       next[index] = {
         ...item,
         settings: cloneSettings(nextSettings),
-        advanced: cloneAdvanced(nextAdvanced),
+        advancedLayers: cloneAdvancedLayers(nextAdvancedLayers),
         history: nextHistory,
         historyIndex: nextHistoryIndex
       };
       return next;
     });
-  };
-
-  const resetHistoryForIndex = (index, nextSettings, nextAdvanced) => {
-    setImageList(prev => {
-      const next = [...prev];
-      const item = next[index];
-      if (!item) return prev;
-      next[index] = {
-        ...item,
-        settings: cloneSettings(nextSettings),
-        advanced: cloneAdvanced(nextAdvanced),
-        history: [{ settings: cloneSettings(nextSettings), advanced: cloneAdvanced(nextAdvanced) }],
-        historyIndex: 0
-      };
-      return next;
-    });
-  };
-
-  const updateCurrentSettings = (partialSettings) => {
-    if (!currentItem) return;
-    const nextSettings = { ...currentSettings, ...partialSettings };
-    pushHistoryForIndex(currentIndex, nextSettings, currentAdvanced);
-  };
-
-  const updateCurrentAdvanced = (partialAdvanced) => {
-    if (!currentItem) return;
-    const nextAdvanced = { ...currentAdvanced, ...partialAdvanced };
-    pushHistoryForIndex(currentIndex, currentSettings, nextAdvanced);
   };
 
   const handleUndo = () => {
@@ -265,7 +300,7 @@ const ColorControl = () => {
       next[currentIndex] = {
         ...item,
         settings: cloneSettings(entry.settings),
-        advanced: cloneAdvanced(entry.advanced),
+        advancedLayers: cloneAdvancedLayers(entry.advancedLayers),
         historyIndex: nextIndex
       };
       return next;
@@ -285,7 +320,7 @@ const ColorControl = () => {
       next[currentIndex] = {
         ...item,
         settings: cloneSettings(entry.settings),
-        advanced: cloneAdvanced(entry.advanced),
+        advancedLayers: cloneAdvancedLayers(entry.advancedLayers),
         historyIndex: nextIndex
       };
       return next;
@@ -294,7 +329,7 @@ const ColorControl = () => {
 
   const handleResetCurrent = () => {
     if (!currentItem) return;
-    pushHistoryForIndex(currentIndex, { ...DEFAULT_SETTINGS }, { ...DEFAULT_ADVANCED });
+    pushHistoryForIndex(currentIndex, { ...DEFAULT_SETTINGS }, [createDefaultLayer()]);
   };
 
   const removeImageAt = (indexToRemove) => {
@@ -320,14 +355,14 @@ const ColorControl = () => {
   const applyCurrentToAll = () => {
     if (!currentItem) return;
     const nextSettings = cloneSettings(currentSettings);
-    const nextAdvanced = cloneAdvanced(currentAdvanced);
+    const nextAdvancedLayers = cloneAdvancedLayers(advancedLayers);
     setImageList(prev => prev.map((item, idx) => {
       if (idx === currentIndex) return item;
       return {
         ...item,
         settings: cloneSettings(nextSettings),
-        advanced: cloneAdvanced(nextAdvanced),
-        history: [{ settings: cloneSettings(nextSettings), advanced: cloneAdvanced(nextAdvanced) }],
+        advancedLayers: cloneAdvancedLayers(nextAdvancedLayers),
+        history: [{ settings: cloneSettings(nextSettings), advancedLayers: cloneAdvancedLayers(nextAdvancedLayers) }],
         historyIndex: 0
       };
     }));
@@ -368,9 +403,10 @@ const ColorControl = () => {
     ctx.filter = `brightness(${currentSettings.brightness}%) saturate(${currentSettings.saturation}%) contrast(${currentSettings.contrast}%) hue-rotate(${currentSettings.globalHue}deg) sepia(${currentSettings.sepia}%)`;
     ctx.drawImage(currentImageObj, 0, 0, canvas.width, canvas.height);
 
-    // 2. 進階像素運算 (OKLab 專業調色)
+    // 2. 進階像素運算 (OKLab 專業調色 - 多圖層支援)
+    const hasEnabledLayers = advancedLayers.some(l => l.enabled && (l.satShift !== 0 || l.hueShift !== 0));
     const shouldRunAdvanced = 
-      currentAdvanced.enabled && (currentAdvanced.satShift !== 0 || currentAdvanced.hueShift !== 0) ||
+      hasEnabledLayers ||
       currentSettings.shadows !== 0 || currentSettings.highlights !== 0 ||
       currentSettings.temperature !== 0 || currentSettings.tint !== 0;
 
@@ -388,14 +424,15 @@ const ColorControl = () => {
           const tempAdj = currentSettings.temperature / 1000;
           const tintAdj = currentSettings.tint / 1000;
 
-          // 核心校準：將 UI 的 HSL Hue 轉為內部 OKLab Hue
-          let targetOklabHue = currentAdvanced.targetHue;
-          if (currentAdvanced.enabled) {
-            // 透過一個高彩度的樣本來獲取對應空間的 Hue
-            const [tempR, tempG, tempB] = hslToRgb(currentAdvanced.targetHue, 100, 50);
-            const [tL, ta, tb] = rgbToOklab(tempR, tempG, tempB);
-            [targetOklabHue] = oklabToHsl(tL, ta, tb);
-          }
+          // 預先計算每個圖層的校準 Hue
+          const calibratedLayers = advancedLayers
+            .filter(l => l.enabled && (l.satShift !== 0 || l.hueShift !== 0))
+            .map(l => {
+              const [tempR, tempG, tempB] = hslToRgb(l.targetHue, 100, 50);
+              const [tL, ta, tb] = rgbToOklab(tempR, tempG, tempB);
+              const [targetOklabHue] = oklabToHsl(tL, ta, tb);
+              return { ...l, targetOklabHue };
+            });
 
           for (let i = 0; i < data.length; i += 4) {
             const r = data[i], g = data[i + 1], b = data[i + 2];
@@ -415,16 +452,16 @@ const ColorControl = () => {
             b_ += tempAdj;
             a += tintAdj;
 
-            // C. 選項色相移動 (使用校準後的 targetOklabHue)
-            if (currentAdvanced.enabled) {
+            // C. 多圖層色相移動
+            for (const layer of calibratedLayers) {
               let [h, s] = oklabToHsl(L, a, b_);
-              let dist = Math.abs(h - targetOklabHue);
+              let dist = Math.abs(h - layer.targetOklabHue);
               if (dist > 180) dist = 360 - dist;
 
-              if (dist <= currentAdvanced.tolerance) {
-                const weight = 1 - (dist / currentAdvanced.tolerance); // 改為線性權重
-                h = (h + (currentAdvanced.hueShift * weight) + 360) % 360;
-                const satAdjust = currentAdvanced.satShift / 100;
+              if (dist <= layer.tolerance) {
+                const weight = 1 - (dist / layer.tolerance);
+                h = (h + (layer.hueShift * weight) + 360) % 360;
+                const satAdjust = layer.satShift / 100;
                 s = Math.max(0, s * (1 + satAdjust * weight));
                 
                 const rad = h * (Math.PI / 180);
@@ -444,7 +481,7 @@ const ColorControl = () => {
         if (advancedRafRef.current) cancelAnimationFrame(advancedRafRef.current);
       };
     }
-  }, [currentImageObj, currentSettings, currentAdvanced]);
+  }, [currentImageObj, currentSettings, advancedLayers]);
 
   const handleImagesUpload = (files) => {
     const remaining = Math.max(0, MAX_IMAGES - imageList.length);
@@ -471,8 +508,8 @@ const ColorControl = () => {
             src,
             imageObj: img,
             settings: { ...DEFAULT_SETTINGS },
-            advanced: { ...DEFAULT_ADVANCED },
-            history: [{ settings: { ...DEFAULT_SETTINGS }, advanced: { ...DEFAULT_ADVANCED } }],
+            advancedLayers: [createDefaultLayer()],
+            history: [{ settings: { ...DEFAULT_SETTINGS }, advancedLayers: [createDefaultLayer()] }],
             historyIndex: 0
           };
           setImageList(prev => {
@@ -495,13 +532,14 @@ const ColorControl = () => {
     canvas.height = item.imageObj.height;
 
     const settings = item.settings || DEFAULT_SETTINGS;
-    const advanced = item.advanced || DEFAULT_ADVANCED;
+    const advancedLayers = item.advancedLayers || [];
 
     ctx.filter = `brightness(${settings.brightness}%) saturate(${settings.saturation}%) contrast(${settings.contrast}%) hue-rotate(${settings.globalHue}deg) sepia(${settings.sepia}%)`;
     ctx.drawImage(item.imageObj, 0, 0, canvas.width, canvas.height);
 
+    const hasEnabledLayers = advancedLayers.some(l => l.enabled && (l.satShift !== 0 || l.hueShift !== 0));
     const shouldRunAdvanced = 
-      advanced.enabled && (advanced.satShift !== 0 || advanced.hueShift !== 0) ||
+      hasEnabledLayers ||
       settings.shadows !== 0 || settings.highlights !== 0 ||
       settings.temperature !== 0 || settings.tint !== 0;
 
@@ -515,12 +553,14 @@ const ColorControl = () => {
       const tintAdj = settings.tint / 1000;
 
       // 核心校準
-      let targetOklabHue = advanced.targetHue;
-      if (advanced.enabled) {
-        const [tempR, tempG, tempB] = hslToRgb(advanced.targetHue, 100, 50);
-        const [tL, ta, tb] = rgbToOklab(tempR, tempG, tempB);
-        [targetOklabHue] = oklabToHsl(tL, ta, tb);
-      }
+      const calibratedLayers = advancedLayers
+        .filter(l => l.enabled && (l.satShift !== 0 || l.hueShift !== 0))
+        .map(l => {
+          const [tempR, tempG, tempB] = hslToRgb(l.targetHue, 100, 50);
+          const [tL, ta, tb] = rgbToOklab(tempR, tempG, tempB);
+          const [targetOklabHue] = oklabToHsl(tL, ta, tb);
+          return { ...l, targetOklabHue };
+        });
 
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i], g = data[i + 1], b = data[i + 2];
@@ -538,15 +578,15 @@ const ColorControl = () => {
         b_ += tempAdj;
         a += tintAdj;
 
-        if (advanced.enabled) {
+        for (const layer of calibratedLayers) {
           let [h, s] = oklabToHsl(L, a, b_);
-          let dist = Math.abs(h - targetOklabHue);
+          let dist = Math.abs(h - layer.targetOklabHue);
           if (dist > 180) dist = 360 - dist;
 
-          if (dist <= advanced.tolerance) {
-            const weight = 1 - (dist / advanced.tolerance);
-            h = (h + (advanced.hueShift * weight) + 360) % 360;
-            const satAdjust = advanced.satShift / 100;
+          if (dist <= layer.tolerance) {
+            const weight = 1 - (dist / layer.tolerance);
+            h = (h + (layer.hueShift * weight) + 360) % 360;
+            const satAdjust = layer.satShift / 100;
             s = Math.max(0, s * (1 + satAdjust * weight));
             const rad = h * (Math.PI / 180);
             a = Math.cos(rad) * s;
@@ -626,14 +666,19 @@ const ColorControl = () => {
   const applyAiResult = (data, applyToAll) => {
     if (!data) return;
     const nextSettings = { ...DEFAULT_SETTINGS, ...data.settings };
-    const nextAdvanced = { ...DEFAULT_ADVANCED, ...data.advanced };
+    const nextAdvancedLayers = (data.advancedLayers || [data.advanced]).filter(Boolean).map(l => ({
+      id: Math.random().toString(36).substr(2, 9),
+      ...DEFAULT_ADVANCED_LAYER,
+      ...l
+    }));
+
     setImageList(prev => prev.map((item, idx) => {
       if (!applyToAll && idx !== currentIndex) return item;
       return {
         ...item,
         settings: cloneSettings(nextSettings),
-        advanced: cloneAdvanced(nextAdvanced),
-        history: [{ settings: cloneSettings(nextSettings), advanced: cloneAdvanced(nextAdvanced) }],
+        advancedLayers: cloneAdvancedLayers(nextAdvancedLayers),
+        history: [{ settings: cloneSettings(nextSettings), advancedLayers: cloneAdvancedLayers(nextAdvancedLayers) }],
         historyIndex: 0
       };
     }));
@@ -700,7 +745,7 @@ const ColorControl = () => {
             - highlights (-100 to 100, 0 is neutral): Adjust bright areas.
             - temperature (-100 to 100, 0 is neutral): Negative is Blue (Cool), Positive is Yellow (Warm).
             - tint (-100 to 100, 0 is neutral): Negative is Green, Positive is Magenta.
-            - advanced: for specific color replacement.
+            - advancedLayers: An array of objects for specific color adjustments.
               - enabled (boolean)
               - targetHue (0-360, e.g., Red=0, Yellow=60, Green=120, Cyan=180, Blue=240, Magenta=300)
               - tolerance (5-90, default 30)
@@ -726,14 +771,17 @@ const ColorControl = () => {
                   tint: { type: "NUMBER" }
                 }
               },
-              advanced: {
-                type: "OBJECT",
-                properties: {
-                  enabled: { type: "BOOLEAN" },
-                  targetHue: { type: "NUMBER" },
-                  tolerance: { type: "NUMBER" },
-                  hueShift: { type: "NUMBER" },
-                  satShift: { type: "NUMBER" }
+              advancedLayers: {
+                type: "ARRAY",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    enabled: { type: "BOOLEAN" },
+                    targetHue: { type: "NUMBER" },
+                    tolerance: { type: "NUMBER" },
+                    hueShift: { type: "NUMBER" },
+                    satShift: { type: "NUMBER" }
+                  }
                 }
               },
               explanation: { type: "STRING", description: "Explain in Traditional Chinese why these settings match the user's prompt or the reference image style." }
@@ -1098,39 +1146,79 @@ const ColorControl = () => {
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Wand2 className="w-5 h-5 text-purple-400" />
-                  <h2 className="text-lg font-semibold text-purple-100">特定色彩獨立調整</h2>
+                  <h2 className="text-lg font-semibold text-purple-100">特定色彩獨立調整 (多圖層)</h2>
                 </div>
-                <label className="flex items-center cursor-pointer">
-                  <div className="relative">
-                    <input type="checkbox" className="sr-only" checked={currentAdvanced.enabled} onChange={(e) => updateCurrentAdvanced({ enabled: e.target.checked })} />
-                    <div className={`block w-10 h-6 rounded-full transition-colors ${currentAdvanced.enabled ? 'bg-purple-500' : 'bg-neutral-600'}`}></div>
-                    <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${currentAdvanced.enabled ? 'transform translate-x-4' : ''}`}></div>
-                  </div>
-                </label>
+                <button
+                  onClick={addAdvancedLayer}
+                  className="p-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors text-white"
+                  title="新增色彩圖層"
+                >
+                  <Plus size={16} />
+                </button>
               </div>
 
-              <div className={`space-y-5 transition-opacity ${currentAdvanced.enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-sm font-medium text-neutral-300">選取目標顏色 (色相)</label>
-                    <span className="text-xs font-mono bg-neutral-900 px-2 py-1 rounded text-purple-400">{currentAdvanced.targetHue}°</span>
+              {/* 圖層清單 */}
+              <div className="flex flex-wrap gap-2 mb-6">
+                {advancedLayers.map((layer, idx) => (
+                  <div
+                    key={layer.id}
+                    onClick={() => setActiveLayerId(layer.id)}
+                    className={`relative flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer transition-all border ${activeLayerId === layer.id ? 'bg-purple-600 border-purple-400 shadow-lg shadow-purple-900/40' : 'bg-neutral-800 border-neutral-700 hover:border-purple-500/50'}`}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full border border-white/20" 
+                      style={{ backgroundColor: `hsl(${layer.targetHue}, 100%, 50%)` }}
+                    />
+                    <span className="text-[10px] font-bold">層 {idx + 1}</span>
+                    {advancedLayers.length > 1 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeAdvancedLayer(layer.id); }}
+                        className="ml-1 text-white/40 hover:text-white"
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
                   </div>
-                  <input
-                    type="range" min={0} max={360} value={currentAdvanced.targetHue}
-                    onChange={(e) => updateCurrentAdvanced({ targetHue: Number(e.target.value) })}
-                    className="w-full h-3 rounded-lg appearance-none cursor-pointer outline-none"
-                    style={{ background: 'linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)' }}
-                  />
-                  <div className="flex justify-between text-[10px] text-neutral-500 px-1 mt-1">
-                    <span>紅</span><span>黃</span><span>綠</span><span>青</span><span>藍</span><span>洋紅</span><span>紅</span>
+                ))}
+              </div>
+
+              {activeLayer && (
+                <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-purple-300 uppercase">圖層設定</span>
+                    <label className="flex items-center cursor-pointer">
+                      <div className="relative">
+                        <input type="checkbox" className="sr-only" checked={activeLayer.enabled} onChange={(e) => updateCurrentAdvanced({ enabled: e.target.checked })} />
+                        <div className={`block w-8 h-4 rounded-full transition-colors ${activeLayer.enabled ? 'bg-purple-500' : 'bg-neutral-600'}`}></div>
+                        <div className={`absolute left-0.5 top-0.5 bg-white w-3 h-3 rounded-full transition-transform ${activeLayer.enabled ? 'transform translate-x-4' : ''}`}></div>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className={`space-y-5 transition-opacity ${activeLayer.enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-sm font-medium text-neutral-300">選取目標顏色 (色相)</label>
+                        <span className="text-xs font-mono bg-neutral-900 px-2 py-1 rounded text-purple-400">{activeLayer.targetHue}°</span>
+                      </div>
+                      <input
+                        type="range" min={0} max={360} value={activeLayer.targetHue}
+                        onChange={(e) => updateCurrentAdvanced({ targetHue: Number(e.target.value) })}
+                        className="w-full h-3 rounded-lg appearance-none cursor-pointer outline-none"
+                        style={{ background: 'linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)' }}
+                      />
+                      <div className="flex justify-between text-[10px] text-neutral-500 px-1 mt-1">
+                        <span>紅</span><span>黃</span><span>綠</span><span>青</span><span>藍</span><span>洋紅</span><span>紅</span>
+                      </div>
+                    </div>
+
+                    <SliderControl label="影響範圍 (容差)" value={activeLayer.tolerance} min={5} max={90} unit="°" onChange={(v) => updateCurrentAdvanced({ tolerance: v })} />
+                    <div className="h-px bg-neutral-700 my-2"></div>
+                    <SliderControl label="抽色/目標彩度調整" value={activeLayer.satShift} min={-100} max={100} onChange={(v) => updateCurrentAdvanced({ satShift: v })} description="降至 -100 將該顏色變為灰階。" />
+                    <SliderControl label="替換為其他顏色 (偏移)" value={activeLayer.hueShift} min={-180} max={180} unit="°" onChange={(v) => updateCurrentAdvanced({ hueShift: v })} />
                   </div>
                 </div>
-
-                <SliderControl label="影響範圍 (容差)" value={currentAdvanced.tolerance} min={5} max={90} unit="°" onChange={(v) => updateCurrentAdvanced({ tolerance: v })} />
-                <div className="h-px bg-neutral-700 my-2"></div>
-                <SliderControl label="抽色/目標彩度調整" value={currentAdvanced.satShift} min={-100} max={100} onChange={(v) => updateCurrentAdvanced({ satShift: v })} description="降至 -100 將該顏色變為灰階。" />
-                <SliderControl label="替換為其他顏色 (偏移)" value={currentAdvanced.hueShift} min={-180} max={180} unit="°" onChange={(v) => updateCurrentAdvanced({ hueShift: v })} />
-              </div>
+              )}
             </div>
 
             <button
