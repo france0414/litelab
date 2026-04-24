@@ -51,6 +51,7 @@ const Cropper = () => {
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [selectionRect, setSelectionRect] = useState(null);
+  const [selectionPadding, setSelectionPadding] = useState(0.1); // 預設 10% 邊距
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const containerRef = useRef(null);
@@ -742,7 +743,11 @@ const Cropper = () => {
       const wVirtual = selectionRect.w / scalePx;
       
       const oldZoom = currentItem.zoom;
-      const newZoom = oldZoom * (VIRTUAL_BASE / wVirtual);
+      
+      // 計算考慮邊距後的縮放倍率
+      // 目標是讓選取範圍寬度佔據容器寬度的 (1 - 2 * selectionPadding)
+      const targetRatioOfContainer = 1 - (selectionPadding * 2);
+      const newZoom = oldZoom * (VIRTUAL_BASE * targetRatioOfContainer / wVirtual);
       const ratio = newZoom / oldZoom;
       
       updateCurrentItem({
@@ -1105,6 +1110,23 @@ const Cropper = () => {
                   >
                     <Scan size={16} /> {isSelectionMode ? '正在框選範圍...' : '框選裁切範圍'}
                   </button>
+                  
+                  {isSelectionMode && (
+                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 space-y-2 animate-in fade-in zoom-in-95 duration-200">
+                      <div className="flex justify-between text-[10px] font-black text-blue-600 uppercase">
+                        <span>選取區域邊距 (Padding)</span>
+                        <span>{Math.round(selectionPadding * 100)}%</span>
+                      </div>
+                      <input
+                        type="range" min="0" max="0.45" step="0.05"
+                        value={selectionPadding}
+                        onChange={(e) => setSelectionPadding(parseFloat(e.target.value))}
+                        className="w-full accent-blue-600 h-1 bg-blue-100 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <p className="text-[10px] text-blue-400 font-semibold leading-tight">增加邊距可讓主體置中的同時保留更多原始背景感。</p>
+                    </div>
+                  )}
+
                   <button
                     onClick={applyCurrentSettingsToAll}
                     className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md"
