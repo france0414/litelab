@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import {
   Upload, Download, Maximize, RotateCcw, ImageIcon, Move,
   AlignCenter, Gauge, ArrowLeftRight, ArrowUpDown,
-  HardDrive, Trash2, ChevronLeft, ChevronRight, Copy, FileArchive
+  HardDrive, Trash2, ChevronLeft, ChevronRight, Copy, FileArchive,
+  Scan, MousePointer2
 } from 'lucide-react';
 
 const DEFAULT_POSTPROCESS = {
@@ -37,9 +38,19 @@ const Cropper = () => {
   const [selectedPreset, setSelectedPreset] = useState('4:3');
   const [lastFitMode, setLastFitMode] = useState(null);
   const [ppPreviewUrl, setPpPreviewUrl] = useState(null);
+  const [gridConfig, setGridConfig] = useState({
+    color: 'white',
+    opacity: 0.6,
+    show: true,
+    thick: false
+  });
 
   // 互動狀態
   const [isDragging, setIsDragging] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
+  const [selectionRect, setSelectionRect] = useState(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const containerRef = useRef(null);
@@ -648,6 +659,18 @@ const Cropper = () => {
   // 互動事件
   const onMouseDown = (e) => {
     if (!currentItem || isPostprocess) return;
+    
+    if (isSelectionMode) {
+      setIsSelecting(true);
+      const rect = containerRef.current.getBoundingClientRect();
+      setSelectionStart({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+      setSelectionRect(null);
+      return;
+    }
+
     setIsDragging(true);
     setDragStart({ 
       mouseX: e.clientX, 
@@ -656,7 +679,40 @@ const Cropper = () => {
       origY: currentItem.crop.y 
     });
   };
+
   const onMouseMove = (e) => {
+    if (isSelecting && isSelectionMode && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+      
+      const dx = currentX - selectionStart.x;
+      const dy = currentY - selectionStart.y;
+      
+      // 強制符合 aspect ratio
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      
+      let w, h;
+      if (absDx / absDy > aspect) {
+        // 以寬度為準
+        w = dx;
+        h = (absDx / aspect) * (dy < 0 ? -1 : 1);
+      } else {
+        // 以高度為準
+        h = dy;
+        w = (absDy * aspect) * (dx < 0 ? -1 : 1);
+      }
+
+      setSelectionRect({
+        x: w > 0 ? selectionStart.x : selectionStart.x + w,
+        y: h > 0 ? selectionStart.y : selectionStart.y + h,
+        w: Math.abs(w),
+        h: Math.abs(h)
+      });
+      return;
+    }
+
     if (isDragging && !isPostprocess && containerRect.width > 0) {
       setLastFitMode(null);
       const dx = e.clientX - dragStart.mouseX;
@@ -669,6 +725,40 @@ const Cropper = () => {
         }
       });
     }
+  };
+
+  const onMouseUp = () => {
+    if (isSelecting && selectionRect && selectionRect.w > 5) {
+      const scalePx = containerRect.width / VIRTUAL_BASE;
+      
+      // 計算選取中心點 (相對於容器中心)
+      const selCenterX = selectionRect.x + selectionRect.w / 2;
+      const selCenterY = selectionRect.y + selectionRect.h / 2;
+      const relCenterX = selCenterX - containerRect.width / 2;
+      const relCenterY = selCenterY - containerRect.height / 2;
+      
+      const sVirtualX = relCenterX / scalePx;
+      const sVirtualY = relCenterY / scalePx;
+      const wVirtual = selectionRect.w / scalePx;
+      
+      const oldZoom = currentItem.zoom;
+      const newZoom = oldZoom * (VIRTUAL_BASE / wVirtual);
+      const ratio = newZoom / oldZoom;
+      
+      updateCurrentItem({
+        zoom: Math.min(Math.max(newZoom, 0.001), 100),
+        crop: {
+          x: (currentItem.crop.x - sVirtualX) * ratio,
+          y: (currentItem.crop.y - sVirtualY) * ratio
+        }
+      });
+      
+      setIsSelectionMode(false);
+    }
+    
+    setIsDragging(false);
+    setIsSelecting(false);
+    setSelectionRect(null);
   };
 
   return (
@@ -776,8 +866,8 @@ const Cropper = () => {
                 className={`relative w-full h-full flex items-center justify-center overflow-hidden touch-none bg-[#0F172A] rounded-[3rem] shadow-2xl border-[12px] border-white ${isPostprocess ? 'cursor-default' : 'cursor-move'}`}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
-                onMouseUp={() => setIsDragging(false)}
-                onMouseLeave={() => setIsDragging(false)}
+                onMouseUp={onMouseUp}
+                onMouseLeave={onMouseUp}
                 onWheel={(e) => {
                   e.preventDefault();
                   if (isPostprocess) return;
@@ -795,10 +885,33 @@ const Cropper = () => {
                     height: aspect < 1 ? 'min(92%, 680px)' : 'auto',
                   }}
                 >
-                  {!isPostprocess && (
-                    <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20">
-                      {[...Array(9)].map((_, i) => <div key={i} className="border-[0.5px] border-white/30"></div>)}
+                  {gridConfig.show && !isPostprocess && (
+                    <div 
+                      className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none z-30"
+                      style={{ opacity: gridConfig.opacity }}
+                    >
+                      {[...Array(9)].map((_, i) => (
+                        <div 
+                          key={i} 
+                          className={`relative border-[0.5px] ${gridConfig.color === 'white' ? 'border-white/50' : gridConfig.color === 'black' ? 'border-black/50' : 'border-yellow-400/50'}`}
+                        >
+                          {/* 增加內層線條實現高對比效果 */}
+                          <div className={`absolute inset-0 border-[0.5px] ${gridConfig.thick ? 'border-[1px]' : ''} ${gridConfig.color === 'white' ? 'border-white shadow-[0_0_1px_rgba(0,0,0,0.8)]' : gridConfig.color === 'black' ? 'border-black shadow-[0_0_1px_rgba(255,255,255,0.8)]' : 'border-yellow-400 shadow-[0_0_2px_rgba(0,0,0,1)]'}`}></div>
+                        </div>
+                      ))}
                     </div>
+                  )}
+
+                  {isSelecting && selectionRect && (
+                    <div 
+                      className="absolute border-2 border-blue-500 bg-blue-500/20 z-40 pointer-events-none"
+                      style={{
+                        left: selectionRect.x,
+                        top: selectionRect.y,
+                        width: selectionRect.w,
+                        height: selectionRect.h
+                      }}
+                    />
                   )}
                 </div>
 
@@ -987,6 +1100,12 @@ const Cropper = () => {
                     </button>
                   </div>
                   <button
+                    onClick={() => setIsSelectionMode(!isSelectionMode)}
+                    className={`w-full py-3 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 ${isSelectionMode ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-800 text-white hover:bg-blue-600'}`}
+                  >
+                    <Scan size={16} /> {isSelectionMode ? '正在框選範圍...' : '框選裁切範圍'}
+                  </button>
+                  <button
                     onClick={applyCurrentSettingsToAll}
                     className="w-full flex items-center justify-center gap-2 py-3 bg-[#5b3671] text-white hover:bg-[#6a3f84] rounded-2xl text-sm font-black transition-all shadow-md"
                   >
@@ -1024,6 +1143,70 @@ const Cropper = () => {
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* 4. 輔助線設定 */}
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Maximize size={14} className="text-blue-500" /> 4. 輔助九宮格
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only peer" 
+                        checked={gridConfig.show}
+                        onChange={(e) => setGridConfig(prev => ({ ...prev, show: e.target.checked }))}
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </h3>
+                  
+                  {gridConfig.show && (
+                    <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-[11px] font-black text-slate-400 uppercase">
+                          <span>不透明度</span>
+                          <span>{Math.round(gridConfig.opacity * 100)}%</span>
+                        </div>
+                        <input
+                          type="range" min="0.1" max="1.0" step="0.05"
+                          value={gridConfig.opacity}
+                          onChange={(e) => setGridConfig(prev => ({ ...prev, opacity: parseFloat(e.target.value) }))}
+                          className="w-full accent-blue-600 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-600">線條顏色</span>
+                        <div className="flex gap-2">
+                          {[
+                            { id: 'white', color: '#ffffff', label: '白' },
+                            { id: 'black', color: '#000000', label: '黑' },
+                            { id: 'yellow', color: '#fbbf24', label: '顯目' }
+                          ].map(c => (
+                            <button
+                              key={c.id}
+                              onClick={() => setGridConfig(prev => ({ ...prev, color: c.id }))}
+                              className={`w-6 h-6 rounded-full border-2 transition-all ${gridConfig.color === c.id ? 'border-blue-600 scale-110' : 'border-transparent'}`}
+                              style={{ backgroundColor: c.color }}
+                              title={c.label}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-600">加粗線條</span>
+                        <button
+                          onClick={() => setGridConfig(prev => ({ ...prev, thick: !prev.thick }))}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black border transition-all ${gridConfig.thick ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white border-slate-200 text-slate-400'}`}
+                        >
+                          {gridConfig.thick ? '已開啟' : '未開啟'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
               </>
