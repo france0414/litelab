@@ -16,7 +16,8 @@ import {
   ImagePlus,
   X,
   FileArchive,
-  Trash2
+  Trash2,
+  Pipette
 } from 'lucide-react';
 
 const DEFAULT_SETTINGS = {
@@ -167,6 +168,11 @@ const ColorControl = () => {
   const [aiExplanation, setAiExplanation] = useState("");
   const [aiError, setAiError] = useState("");
   const [applyAiToAll, setApplyAiToAll] = useState(false);
+  const [isEyeDropperSupported, setIsEyeDropperSupported] = useState(false);
+
+  useEffect(() => {
+    setIsEyeDropperSupported(!!window.EyeDropper);
+  }, []);
 
   const fileInputRef = useRef(null);
   const refFileInputRef = useRef(null);
@@ -369,6 +375,22 @@ const ColorControl = () => {
     }));
   };
 
+  const handlePickColor = async () => {
+    if (!window.EyeDropper) return;
+    const eyeDropper = new window.EyeDropper();
+    try {
+      const result = await eyeDropper.open();
+      const hex = result.sRGBHex;
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      const [h] = rgbToHsl(r, g, b);
+      updateCurrentAdvanced({ targetHue: Math.round(h) });
+    } catch (e) {
+      console.log('EyeDropper cancelled');
+    }
+  };
+
   // 載入參考圖片物件
   useEffect(() => {
     if (!refImageSrc) {
@@ -454,20 +476,26 @@ const ColorControl = () => {
             a += tintAdj;
 
             // C. 多圖層色相移動
+            // 先計算進入圖層前的原始色相與飽和度，作為所有圖層的判定基準
+            const [origH, origS] = oklabToHsl(L, a, b_);
+
             for (const layer of calibratedLayers) {
-              let [h, s] = oklabToHsl(L, a, b_);
-              let dist = Math.abs(h - layer.targetOklabHue);
+              let dist = Math.abs(origH - layer.targetOklabHue);
               if (dist > 180) dist = 360 - dist;
 
               if (dist <= layer.tolerance) {
                 const weight = 1 - (dist / layer.tolerance);
-                h = (h + (layer.hueShift * weight) + 360) % 360;
-                const satAdjust = layer.satShift / 100;
-                s = Math.max(0, s * (1 + satAdjust * weight));
                 
-                const rad = h * (Math.PI / 180);
-                a = Math.cos(rad) * s;
-                b_ = Math.sin(rad) * s;
+                // 取得當前的 H, S (可能已被前一個圖層修改過)
+                let [currH, currS] = oklabToHsl(L, a, b_);
+                
+                currH = (currH + (layer.hueShift * weight) + 360) % 360;
+                const satAdjust = layer.satShift / 100;
+                currS = Math.max(0, currS * (1 + satAdjust * weight));
+                
+                const rad = currH * (Math.PI / 180);
+                a = Math.cos(rad) * currS;
+                b_ = Math.sin(rad) * currS;
               }
             }
 
@@ -579,19 +607,24 @@ const ColorControl = () => {
         b_ += tempAdj;
         a += tintAdj;
 
+        // 先計算進入圖層前的原始色相與飽和度，作為所有圖層的判定基準
+        const [origH, origS] = oklabToHsl(L, a, b_);
+
         for (const layer of calibratedLayers) {
-          let [h, s] = oklabToHsl(L, a, b_);
-          let dist = Math.abs(h - layer.targetOklabHue);
+          let dist = Math.abs(origH - layer.targetOklabHue);
           if (dist > 180) dist = 360 - dist;
 
           if (dist <= layer.tolerance) {
             const weight = 1 - (dist / layer.tolerance);
-            h = (h + (layer.hueShift * weight) + 360) % 360;
+            let [currH, currS] = oklabToHsl(L, a, b_);
+            
+            currH = (currH + (layer.hueShift * weight) + 360) % 360;
             const satAdjust = layer.satShift / 100;
-            s = Math.max(0, s * (1 + satAdjust * weight));
-            const rad = h * (Math.PI / 180);
-            a = Math.cos(rad) * s;
-            b_ = Math.sin(rad) * s;
+            currS = Math.max(0, currS * (1 + satAdjust * weight));
+            
+            const rad = currH * (Math.PI / 180);
+            a = Math.cos(rad) * currS;
+            b_ = Math.sin(rad) * currS;
           }
         }
 
@@ -1199,7 +1232,18 @@ const ColorControl = () => {
                   <div className={`space-y-5 transition-opacity ${activeLayer.enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
                     <div className="flex flex-col gap-1.5">
                       <div className="flex justify-between items-center">
-                        <label className="text-sm font-medium text-neutral-300">選取目標顏色 (色相)</label>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm font-medium text-neutral-300">選取目標顏色 (色相)</label>
+                          {isEyeDropperSupported && (
+                            <button 
+                              onClick={handlePickColor}
+                              className="p-1 hover:bg-neutral-800 rounded text-purple-400 transition-colors"
+                              title="使用吸管從圖片選色"
+                            >
+                              <Pipette size={14} />
+                            </button>
+                          )}
+                        </div>
                         <span className="text-xs font-mono bg-neutral-900 px-2 py-1 rounded text-purple-400">{activeLayer.targetHue}°</span>
                       </div>
                       <input
