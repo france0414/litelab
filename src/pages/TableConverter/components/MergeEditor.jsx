@@ -244,7 +244,25 @@ const MergeEditor = ({
       <div className="merge-editor-preview mt-4 overflow-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
         <table className="w-full border-separate border-spacing-0 text-xs">
           <tbody>
+            {matrix.length > 0 && (
+              <tr>
+                <td className="w-12 border border-slate-800 bg-slate-900/60"></td>
+                {matrix[0].map((_, c) => (
+                  <td key={`col-header-${c}`} className="border border-slate-800 bg-slate-950/80 p-1 text-center">
+                    <button
+                      type="button"
+                      onClick={() => onSetHeader({ r1: 0, r2: matrix.length - 1, c1: c, c2: c })}
+                      className="inline-flex h-5 w-full items-center justify-center rounded-md border border-amber-500/40 bg-amber-600/10 text-[10px] font-black text-amber-200 transition hover:bg-amber-600/30"
+                      title="整欄設為標題"
+                    >
+                      標題
+                    </button>
+                  </td>
+                ))}
+              </tr>
+            )}
             {matrix.map((row, r) => (
+
               <tr key={`row-${r}`}>
                 <td className="w-12 border border-slate-800 bg-slate-950/80 p-1 text-center">
                   <button
