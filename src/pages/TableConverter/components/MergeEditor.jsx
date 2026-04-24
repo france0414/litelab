@@ -246,8 +246,19 @@ const MergeEditor = ({
           <tbody>
             {matrix.map((row, r) => (
               <tr key={`row-${r}`}>
+                <td className="w-12 border border-slate-800 bg-slate-950/80 p-1 text-center">
+                  <button
+                    type="button"
+                    onClick={() => onSetHeader({ r1: r, r2: r, c1: 0, c2: row.length - 1 })}
+                    className="inline-flex h-6 w-10 items-center justify-center rounded-md border border-amber-500/40 bg-amber-600/10 text-[10px] font-black text-amber-200 transition hover:bg-amber-600/30"
+                    title="整列設為標題"
+                  >
+                    標題
+                  </button>
+                </td>
                 {row.map((value, c) => {
                   const key = `${r}:${c}`;
+
 
                   if (covered.has(key)) {
                     return null;
