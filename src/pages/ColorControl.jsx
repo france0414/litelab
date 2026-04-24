@@ -24,6 +24,10 @@ const DEFAULT_SETTINGS = {
   contrast: 100,
   globalHue: 0,
   sepia: 0,
+  shadows: 0,
+  highlights: 0,
+  temperature: 0,
+  tint: 0
 };
 
 const DEFAULT_ADVANCED = {
@@ -40,7 +44,55 @@ const MAX_HISTORY = 20;
 const cloneSettings = (settings) => ({ ...settings });
 const cloneAdvanced = (advanced) => ({ ...advanced });
 
-// RGB 轉 HSL
+// OKLab 色彩科學工具 (Perceptually Uniform Color Space)
+function srgbToLinear(c) {
+  c /= 255;
+  return c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92;
+}
+
+function linearToSrgb(c) {
+  c = c > 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c;
+  return Math.max(0, Math.min(255, Math.round(c * 255)));
+}
+
+function rgbToOklab(r, g, b) {
+  let lr = srgbToLinear(r), lg = srgbToLinear(g), lb = srgbToLinear(b);
+  let l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+  let m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+  let s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+
+  let l_ = Math.cbrt(l), m_ = Math.cbrt(m), s_ = Math.cbrt(s);
+
+  return [
+    0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720403 * s_,
+    1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+  ];
+}
+
+function oklabToRgb(L, a, b) {
+  let l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  let m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  let s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+  let l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+
+  let lr = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  let lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  let lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+  return [linearToSrgb(lr), linearToSrgb(lg), linearToSrgb(lb)];
+}
+
+// 輔助函式：從 OKLab 提取 Hue
+function oklabToHsl(L, a, b) {
+  let h = Math.atan2(b, a) * (180 / Math.PI);
+  if (h < 0) h += 360;
+  let s = Math.sqrt(a * a + b * b);
+  return [h, s, L];
+}
+
+// RGB 轉 HSL (保持舊版相容或輔助使用)
 function rgbToHsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -59,31 +111,6 @@ function rgbToHsl(r, g, b) {
     h *= 60;
   }
   return [h, s, l];
-}
-
-// HSL 轉 RGB
-function hslToRgb(h, s, l) {
-  let r, g, b;
-  h /= 360;
-
-  if (s === 0) {
-    r = g = b = l;
-  } else {
-    const hue2rgb = (p, q, t) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1 / 6) return p + (q - p) * 6 * t;
-      if (t < 1 / 2) return q;
-      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-      return p;
-    };
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1 / 3);
-    g = hue2rgb(p, q, h);
-    b = hue2rgb(p, q, h - 1 / 3);
-  }
-  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
 
 const ColorControl = () => {
@@ -314,48 +341,76 @@ const ColorControl = () => {
     canvas.width = width;
     canvas.height = height;
 
-    // 1. 全域濾鏡
+    // 1. 全域濾鏡 (CSS Filter 作為基礎)
     ctx.filter = `brightness(${currentSettings.brightness}%) saturate(${currentSettings.saturation}%) contrast(${currentSettings.contrast}%) hue-rotate(${currentSettings.globalHue}deg) sepia(${currentSettings.sepia}%)`;
     ctx.drawImage(currentImageObj, 0, 0, canvas.width, canvas.height);
 
-    // 2. 進階像素運算
-    if (currentAdvanced.enabled && (currentAdvanced.satShift !== 0 || currentAdvanced.hueShift !== 0)) {
-      if (advancedTimeoutRef.current) {
-        clearTimeout(advancedTimeoutRef.current);
-      }
-      if (advancedRafRef.current) {
-        cancelAnimationFrame(advancedRafRef.current);
-      }
+    // 2. 進階像素運算 (OKLab 專業調色)
+    const shouldRunAdvanced = 
+      currentAdvanced.enabled && (currentAdvanced.satShift !== 0 || currentAdvanced.hueShift !== 0) ||
+      currentSettings.shadows !== 0 || currentSettings.highlights !== 0 ||
+      currentSettings.temperature !== 0 || currentSettings.tint !== 0;
+
+    if (shouldRunAdvanced) {
+      if (advancedTimeoutRef.current) clearTimeout(advancedTimeoutRef.current);
+      if (advancedRafRef.current) cancelAnimationFrame(advancedRafRef.current);
+
       advancedTimeoutRef.current = setTimeout(() => {
         advancedRafRef.current = requestAnimationFrame(() => {
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imageData.data;
 
+          const shadowAdj = currentSettings.shadows / 500;
+          const highlightAdj = currentSettings.highlights / 500;
+          const tempAdj = currentSettings.temperature / 1000;
+          const tintAdj = currentSettings.tint / 1000;
+
           for (let i = 0; i < data.length; i += 4) {
             const r = data[i], g = data[i + 1], b = data[i + 2];
-            let [h, s, l] = rgbToHsl(r, g, b);
-            let dist = Math.abs(h - currentAdvanced.targetHue);
-            if (dist > 180) dist = 360 - dist;
+            let [L, a, b_] = rgbToOklab(r, g, b);
 
-            if (dist <= currentAdvanced.tolerance) {
-              const weight = 1 - (dist / currentAdvanced.tolerance);
-              h = (h + (currentAdvanced.hueShift * weight) + 360) % 360;
-              const satAdjust = currentAdvanced.satShift / 100;
-              s = Math.max(0, Math.min(1, s + (satAdjust * weight * s)));
-              const [nr, ng, nb] = hslToRgb(h, s, l);
-              data[i] = nr; data[i + 1] = ng; data[i + 2] = nb;
+            // A. 陰影與高光 (基於 L 通道)
+            if (L < 0.5) {
+              const weight = Math.pow(1 - L * 2, 2);
+              L += shadowAdj * weight;
+            } else {
+              const weight = Math.pow((L - 0.5) * 2, 2);
+              L += highlightAdj * weight;
             }
+            L = Math.max(0, Math.min(1, L));
+
+            // B. 色溫與色調 (調整 a, b 通道)
+            b_ += tempAdj; // 正值變黃(暖)，負值變藍(冷)
+            a += tintAdj; // 正值變洋紅，負值變綠
+
+            // C. 選項色相移動 (OKLab 距離演算法)
+            if (currentAdvanced.enabled) {
+              let [h, s] = oklabToHsl(L, a, b_);
+              let dist = Math.abs(h - currentAdvanced.targetHue);
+              if (dist > 180) dist = 360 - dist;
+
+              if (dist <= currentAdvanced.tolerance) {
+                const weight = Math.pow(1 - (dist / currentAdvanced.tolerance), 2);
+                h = (h + (currentAdvanced.hueShift * weight) + 360) % 360;
+                const satAdjust = currentAdvanced.satShift / 100;
+                s = Math.max(0, s + (satAdjust * weight * s));
+                
+                // 轉回 a, b
+                const rad = h * (Math.PI / 180);
+                a = Math.cos(rad) * s;
+                b_ = Math.sin(rad) * s;
+              }
+            }
+
+            const [nr, ng, nb] = oklabToRgb(L, a, b_);
+            data[i] = nr; data[i + 1] = ng; data[i + 2] = nb;
           }
           ctx.putImageData(imageData, 0, 0);
         });
       }, 120);
       return () => {
-        if (advancedTimeoutRef.current) {
-          clearTimeout(advancedTimeoutRef.current);
-        }
-        if (advancedRafRef.current) {
-          cancelAnimationFrame(advancedRafRef.current);
-        }
+        if (advancedTimeoutRef.current) clearTimeout(advancedTimeoutRef.current);
+        if (advancedRafRef.current) cancelAnimationFrame(advancedRafRef.current);
       };
     }
   }, [currentImageObj, currentSettings, currentAdvanced]);
@@ -414,22 +469,54 @@ const ColorControl = () => {
     ctx.filter = `brightness(${settings.brightness}%) saturate(${settings.saturation}%) contrast(${settings.contrast}%) hue-rotate(${settings.globalHue}deg) sepia(${settings.sepia}%)`;
     ctx.drawImage(item.imageObj, 0, 0, canvas.width, canvas.height);
 
-    if (advanced.enabled && (advanced.satShift !== 0 || advanced.hueShift !== 0)) {
+    const shouldRunAdvanced = 
+      advanced.enabled && (advanced.satShift !== 0 || advanced.hueShift !== 0) ||
+      settings.shadows !== 0 || settings.highlights !== 0 ||
+      settings.temperature !== 0 || settings.tint !== 0;
+
+    if (shouldRunAdvanced) {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
+
+      const shadowAdj = settings.shadows / 500;
+      const highlightAdj = settings.highlights / 500;
+      const tempAdj = settings.temperature / 1000;
+      const tintAdj = settings.tint / 1000;
+
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i], g = data[i + 1], b = data[i + 2];
-        let [h, s, l] = rgbToHsl(r, g, b);
-        let dist = Math.abs(h - advanced.targetHue);
-        if (dist > 180) dist = 360 - dist;
-        if (dist <= advanced.tolerance) {
-          const weight = 1 - (dist / advanced.tolerance);
-          h = (h + (advanced.hueShift * weight) + 360) % 360;
-          const satAdjust = advanced.satShift / 100;
-          s = Math.max(0, Math.min(1, s + (satAdjust * weight * s)));
-          const [nr, ng, nb] = hslToRgb(h, s, l);
-          data[i] = nr; data[i + 1] = ng; data[i + 2] = nb;
+        let [L, a, b_] = rgbToOklab(r, g, b);
+
+        if (L < 0.5) {
+          const weight = Math.pow(1 - L * 2, 2);
+          L += shadowAdj * weight;
+        } else {
+          const weight = Math.pow((L - 0.5) * 2, 2);
+          L += highlightAdj * weight;
         }
+        L = Math.max(0, Math.min(1, L));
+
+        b_ += tempAdj;
+        a += tintAdj;
+
+        if (advanced.enabled) {
+          let [h, s] = oklabToHsl(L, a, b_);
+          let dist = Math.abs(h - advanced.targetHue);
+          if (dist > 180) dist = 360 - dist;
+
+          if (dist <= advanced.tolerance) {
+            const weight = Math.pow(1 - (dist / advanced.tolerance), 2);
+            h = (h + (advanced.hueShift * weight) + 360) % 360;
+            const satAdjust = advanced.satShift / 100;
+            s = Math.max(0, s + (satAdjust * weight * s));
+            const rad = h * (Math.PI / 180);
+            a = Math.cos(rad) * s;
+            b_ = Math.sin(rad) * s;
+          }
+        }
+
+        const [nr, ng, nb] = oklabToRgb(L, a, b_);
+        data[i] = nr; data[i + 1] = ng; data[i + 2] = nb;
       }
       ctx.putImageData(imageData, 0, 0);
     }
@@ -564,19 +651,22 @@ const ColorControl = () => {
         ],
         systemInstruction: {
           parts: [{
-            text: `Output strictly as JSON matching the schema.
+            text: `You are a professional cinematic colorist. Output strictly as JSON matching the schema.
             Tool parameters mapping:
             - brightness (0-200, default 100)
             - saturation (0-200, default 100)
             - contrast (0-200, default 100)
             - globalHue (-180 to 180, default 0)
-            - sepia (0-100, default 0)
+            - shadows (-100 to 100, 0 is neutral): Adjust dark areas.
+            - highlights (-100 to 100, 0 is neutral): Adjust bright areas.
+            - temperature (-100 to 100, 0 is neutral): Negative is Blue (Cool), Positive is Yellow (Warm).
+            - tint (-100 to 100, 0 is neutral): Negative is Green, Positive is Magenta.
             - advanced: for specific color replacement.
               - enabled (boolean)
               - targetHue (0-360, e.g., Red=0, Yellow=60, Green=120, Cyan=180, Blue=240, Magenta=300)
               - tolerance (5-90, default 30)
               - hueShift (-180 to 180)
-              - satShift (-100 to 100, -100 makes the target color grayscale)`
+              - satShift (-100 to 100)`
           }]
         },
         generationConfig: {
@@ -591,7 +681,10 @@ const ColorControl = () => {
                   saturation: { type: "NUMBER" },
                   contrast: { type: "NUMBER" },
                   globalHue: { type: "NUMBER" },
-                  sepia: { type: "NUMBER" }
+                  shadows: { type: "NUMBER" },
+                  highlights: { type: "NUMBER" },
+                  temperature: { type: "NUMBER" },
+                  tint: { type: "NUMBER" }
                 }
               },
               advanced: {
@@ -951,10 +1044,13 @@ const ColorControl = () => {
               </div>
               <div className="space-y-4">
                 <SliderControl label="明度 (Brightness)" value={currentSettings.brightness} min={0} max={200} onChange={(v) => updateCurrentSettings({ brightness: v })} />
-                <SliderControl label="彩度 (Saturation)" value={currentSettings.saturation} min={0} max={200} onChange={(v) => updateCurrentSettings({ saturation: v })} />
                 <SliderControl label="對比 (Contrast)" value={currentSettings.contrast} min={0} max={200} onChange={(v) => updateCurrentSettings({ contrast: v })} />
-                <SliderControl label="全域色相 (Hue)" value={currentSettings.globalHue} min={-180} max={180} unit="°" onChange={(v) => updateCurrentSettings({ globalHue: v })} />
-                <SliderControl label="復古褐調 (Sepia)" value={currentSettings.sepia} min={0} max={100} onChange={(v) => updateCurrentSettings({ sepia: v })} />
+                <SliderControl label="飽和度 (Saturation)" value={currentSettings.saturation} min={0} max={200} onChange={(v) => updateCurrentSettings({ saturation: v })} />
+                <div className="h-px bg-neutral-800 my-2"></div>
+                <SliderControl label="陰影 (Shadows)" value={currentSettings.shadows} min={-100} max={100} onChange={(v) => updateCurrentSettings({ shadows: v })} />
+                <SliderControl label="高光 (Highlights)" value={currentSettings.highlights} min={-100} max={100} onChange={(v) => updateCurrentSettings({ highlights: v })} />
+                <SliderControl label="色溫 (Temperature)" value={currentSettings.temperature} min={-100} max={100} unit="°" onChange={(v) => updateCurrentSettings({ temperature: v })} />
+                <SliderControl label="色調 (Tint)" value={currentSettings.tint} min={-100} max={100} unit="°" onChange={(v) => updateCurrentSettings({ tint: v })} />
               </div>
             </div>
 
