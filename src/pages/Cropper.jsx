@@ -898,10 +898,22 @@ const Cropper = () => {
                       {[...Array(9)].map((_, i) => (
                         <div 
                           key={i} 
-                          className={`relative border-[0.5px] ${gridConfig.color === 'white' ? 'border-white/50' : gridConfig.color === 'black' ? 'border-black/50' : 'border-yellow-400/50'}`}
+                          className={`relative border-[0.5px] ${
+                            gridConfig.color === 'white' ? 'border-white/50' : 
+                            gridConfig.color === 'black' ? 'border-black/50' : 
+                            gridConfig.color === 'green' ? 'border-green-400/50' :
+                            gridConfig.color === 'blue' ? 'border-blue-400/50' :
+                            'border-pink-400/50'
+                          }`}
                         >
                           {/* 增加內層線條實現高對比效果 */}
-                          <div className={`absolute inset-0 border-[0.5px] ${gridConfig.thick ? 'border-[1px]' : ''} ${gridConfig.color === 'white' ? 'border-white shadow-[0_0_1px_rgba(0,0,0,0.8)]' : gridConfig.color === 'black' ? 'border-black shadow-[0_0_1px_rgba(255,255,255,0.8)]' : 'border-yellow-400 shadow-[0_0_2px_rgba(0,0,0,1)]'}`}></div>
+                          <div className={`absolute inset-0 border-[0.5px] ${gridConfig.thick ? 'border-[1px]' : ''} ${
+                            gridConfig.color === 'white' ? 'border-white shadow-[0_0_1px_rgba(0,0,0,0.8)]' : 
+                            gridConfig.color === 'black' ? 'border-black shadow-[0_0_1px_rgba(255,255,255,0.8)]' : 
+                            gridConfig.color === 'green' ? 'border-[#8efd05] shadow-[0_0_2px_rgba(0,0,0,1)]' :
+                            gridConfig.color === 'blue' ? 'border-[#00d4ff] shadow-[0_0_2px_rgba(0,0,0,1)]' :
+                            'border-[#ff007f] shadow-[0_0_2px_rgba(0,0,0,1)]'
+                          }`}></div>
                         </div>
                       ))}
                     </div>
@@ -1205,7 +1217,9 @@ const Cropper = () => {
                           {[
                             { id: 'white', color: '#ffffff', label: '白' },
                             { id: 'black', color: '#000000', label: '黑' },
-                            { id: 'yellow', color: '#fbbf24', label: '顯目' }
+                            { id: 'green', color: '#8efd05', label: '螢光綠' },
+                            { id: 'blue', color: '#00d4ff', label: '螢光藍' },
+                            { id: 'pink', color: '#ff007f', label: '螢光粉' }
                           ].map(c => (
                             <button
                               key={c.id}
