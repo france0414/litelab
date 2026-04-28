@@ -189,25 +189,28 @@ const Cropper = () => {
   const applyCurrentSettingsToAll = () => {
     if (!currentItem) return;
     const { crop, zoom } = currentItem;
-    const frameRect = containerRef.current?.getBoundingClientRect();
 
     setImageList(prev => prev.map(item => {
-      if (!lastFitMode || !frameRect || !item.width || !item.height) {
+      if (!lastFitMode || !item.width || !item.height || !currentItem.width || !currentItem.height) {
         return { ...item, crop: { ...crop }, zoom };
       }
 
-      const fittedZoom = lastFitMode === 'width'
-        ? frameRect.width / item.width
-        : frameRect.height / item.height;
+      const currentFittedZoom = lastFitMode === 'width'
+        ? VIRTUAL_BASE / currentItem.width
+        : (VIRTUAL_BASE / aspect) / currentItem.height;
 
-      const scale = zoom ? fittedZoom / zoom : 1;
+      const userScale = zoom / currentFittedZoom;
+
+      const itemFittedZoom = lastFitMode === 'width'
+        ? VIRTUAL_BASE / item.width
+        : (VIRTUAL_BASE / aspect) / item.height;
+
+      const targetZoom = itemFittedZoom * userScale;
+
       return {
         ...item,
-        zoom: Math.min(Math.max(fittedZoom, 0.01), 10),
-        crop: {
-          x: crop.x * scale,
-          y: crop.y * scale
-        }
+        zoom: Math.min(Math.max(targetZoom, 0.001), 100),
+        crop: { ...crop }
       };
     }));
   };
